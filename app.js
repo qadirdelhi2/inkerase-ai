@@ -141,6 +141,7 @@
   let currentWorkingImage = null;   // Active baked image
   let imageHistory = [];            // Undo stack for image commits
   let maskStrokeHistory = [];       // Undo stack for red tattoo strokes
+  let isComparing = false;          // Original vs edited comparison state
   const MAX_HISTORY = 12;
 
   // Background Blur Cache
@@ -370,8 +371,12 @@
 
     imageHistory = [];
     maskStrokeHistory = [];
+    cachedSubjectCutout = null;
     cachedSubjectMask = null;
     blurSourceCanvas = null;
+    smoothSourceCanvas = null;
+    isExtractingMask = false;
+    if (typeof resetAdjustSliders === 'function') resetAdjustSliders();
 
     // Viewport layout calculation
     const vWidth = Math.max(280, canvasViewport.clientWidth || window.innerWidth);
@@ -512,36 +517,32 @@
     const curW = displayWidth * scale;
     const curH = displayHeight * scale;
 
-    const minPanX = vWidth - curW - 40;
-    const maxPanX = 40;
-    const minPanY = vHeight - curH - 40;
-    const maxPanY = 40;
+    const marginX = Math.max(60, Math.round(vWidth * 0.3));
+    const marginY = Math.max(60, Math.round(vHeight * 0.3));
 
     if (curW > vWidth) {
+      const minPanX = vWidth - curW - marginX;
+      const maxPanX = marginX;
       panX = Math.min(maxPanX, Math.max(minPanX, panX));
     } else {
-      panX = (vWidth - curW) / 2;
+      panX = Math.round((vWidth - curW) / 2);
     }
 
     if (curH > vHeight) {
+      const minPanY = vHeight - curH - marginY;
+      const maxPanY = marginY;
       panY = Math.min(maxPanY, Math.max(minPanY, panY));
     } else {
-      panY = (vHeight - curH) / 2;
+      panY = Math.round((vHeight - curH) / 2);
     }
   }
 
-  // Multi-Touch Pinch Zoom + Auto-Centering
+  // Multi-Touch Focal-Point Pinch Zoom + 2-Finger Pan + Single-Finger Drawing
   canvasViewport.addEventListener('touchstart', (e) => {
-    const now = Date.now();
-    if (e.touches.length === 1 && now - lastTapTime < 280) {
-      resetTransform();
-      lastTapTime = 0;
-      return;
-    }
-    lastTapTime = now;
-
     if (e.touches.length === 2) {
-      isDrawing = false;
+      if (isDrawing) {
+        stopInteraction();
+      }
       isPinching = true;
       cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
 
@@ -572,21 +573,13 @@
         y: (t1.clientY + t2.clientY) / 2
       };
 
-      if (startPinchDist > 0) {
+      if (startPinchDist > 5) {
         const factor = dist / startPinchDist;
-        let newScale = startScale * factor;
+        const newScale = Math.min(8.0, Math.max(0.75, startScale * factor));
 
-        if (newScale <= 1.05) {
-          scale = 1.0;
-          panX = defaultPanX;
-          panY = defaultPanY;
-          updateTransform();
-          return;
-        }
-
-        newScale = Math.min(8.0, newScale);
-        panX = startPanX + (currentMid.x - pinchMidpoint.x);
-        panY = startPanY + (currentMid.y - pinchMidpoint.y);
+        // True focal point zoom & pan: keeping image directly anchored under fingers
+        panX = currentMid.x - ((pinchMidpoint.x - startPanX) / startScale) * newScale;
+        panY = currentMid.y - ((pinchMidpoint.y - startPanY) / startScale) * newScale;
         scale = newScale;
 
         clampPan(canvasViewport.clientWidth, canvasViewport.clientHeight);
@@ -599,10 +592,13 @@
   }, { passive: false });
 
   canvasViewport.addEventListener('touchend', (e) => {
-    if (e.touches.length < 2) {
+    if (e.touches.length < 2 && isPinching) {
       isPinching = false;
-      if (scale <= 1.08) {
-        resetTransform();
+      if (scale < 0.96) {
+        fitCanvasToCurrentViewport();
+      } else {
+        clampPan(canvasViewport.clientWidth, canvasViewport.clientHeight);
+        updateTransform();
       }
     }
     if (e.touches.length === 0) {
@@ -782,16 +778,22 @@
   // --- Tool 1: Tattoo Mask Drawing ---
   function drawEraseStroke(x1, y1, x2, y2) {
     const sf = getScaleFactor();
+    const radius = eraseBrushRadius * sf;
     maskCtx.strokeStyle = 'rgba(255, 46, 99, 0.85)';
     maskCtx.fillStyle = 'rgba(255, 46, 99, 0.85)';
-    maskCtx.lineWidth = eraseBrushRadius * sf * 2;
+    maskCtx.lineWidth = radius * 2;
     maskCtx.lineCap = 'round';
     maskCtx.lineJoin = 'round';
 
     maskCtx.beginPath();
-    maskCtx.moveTo(x1, y1);
-    maskCtx.lineTo(x2, y2);
-    maskCtx.stroke();
+    if (Math.abs(x1 - x2) < 0.5 && Math.abs(y1 - y2) < 0.5) {
+      maskCtx.arc(x1, y1, radius, 0, Math.PI * 2);
+      maskCtx.fill();
+    } else {
+      maskCtx.moveTo(x1, y1);
+      maskCtx.lineTo(x2, y2);
+      maskCtx.stroke();
+    }
   }
 
   brushSizeInput.addEventListener('input', (e) => {
@@ -1090,6 +1092,11 @@
     baked.height = baseCanvas.height;
     baked.getContext('2d').drawImage(baseCanvas, 0, 0);
     currentWorkingImage = baked;
+
+    cachedSubjectCutout = null;
+    cachedSubjectMask = null;
+    blurSourceCanvas = null;
+    smoothSourceCanvas = null;
 
     updateUndoState();
     alert('✓ Background blur applied successfully!');
@@ -1767,6 +1774,9 @@
       baseCtx.drawImage(prevImageState, 0, 0);
       clearMask();
       cachedSubjectMask = null;
+      cachedSubjectCutout = null;
+      blurSourceCanvas = null;
+      smoothSourceCanvas = null;
       updateUndoState();
     }
   });
