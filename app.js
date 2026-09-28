@@ -98,6 +98,7 @@
 
   // Background Blur Cache
   let cachedSubjectCutout = null;   // Cutout Image with transparent BG
+  let cachedSubjectMask = null;     // Legacy mask cache
   let isExtractingMask = false;
 
   // Manual Blur Brush State
@@ -904,7 +905,7 @@
     }
   });
 
-  btnSaveImageSmooth.addEventListener('click', saveFinalImage);
+  btnSaveImageSmooth.addEventListener('click', exportImage);
 
   // ==========================================
   // 6. Undo State Management
