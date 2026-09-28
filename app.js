@@ -709,10 +709,29 @@
     if (isExtractingMask || !currentWorkingImage) return;
     isExtractingMask = true;
 
-    showProgress(true, 'Detecting Subject...', 'AI isolating person for portrait depth-of-field...', 40);
+    showProgress(true, 'Detecting Subject...', 'AI isolating person for portrait depth-of-field...', 30);
 
     try {
-      const imgB64 = currentWorkingImage.toDataURL('image/jpeg', 0.96);
+      // High-speed optimization: Pre-scale image to 1024px to send compact ~250KB JPEG instead of 15MB
+      const maxDim = 1024;
+      const w = currentWorkingImage.width;
+      const h = currentWorkingImage.height;
+      let imgB64;
+
+      if (Math.max(w, h) > maxDim) {
+        const s = maxDim / Math.max(w, h);
+        const fastCanvas = document.createElement('canvas');
+        fastCanvas.width = Math.round(w * s);
+        fastCanvas.height = Math.round(h * s);
+        const fCtx = fastCanvas.getContext('2d');
+        fCtx.drawImage(currentWorkingImage, 0, 0, fastCanvas.width, fastCanvas.height);
+        imgB64 = fastCanvas.toDataURL('image/jpeg', 0.88);
+      } else {
+        imgB64 = currentWorkingImage.toDataURL('image/jpeg', 0.88);
+      }
+
+      progressFill.style.width = '65%';
+
       const res = await fetch('/api/segment_subject', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -723,7 +742,7 @@
       const data = await res.json();
       if (!data.success) throw new Error(data.error || 'Failed to detect subject');
 
-      progressFill.style.width = '85%';
+      progressFill.style.width = '90%';
 
       // Load transparent cutout image
       await new Promise((resolve, reject) => {

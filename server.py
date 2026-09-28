@@ -31,6 +31,9 @@ def get_rmbg_session():
         print("BRIA-RMBG Engine Active & Ready!")
     return rmbg_session
 
+# Pre-warm RMBG into RAM to eliminate first-click cold start
+get_rmbg_session()
+
 def apply_portrait_blur(orig_np, mask_np, blur_density=25):
     """
     Studio Portrait Depth-of-Field Blur:
@@ -202,12 +205,23 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             img_b64 = data['image'].split(',')[-1]
             orig_img = Image.open(io.BytesIO(base64.b64decode(img_b64))).convert("RGB")
 
+            # Fast 1024-capped inference: BRIA-RMBG native resolution is 1024x1024
+            w, h = orig_img.size
+            max_dim = 1024
+            if max(w, h) > max_dim:
+                scale = max_dim / float(max(w, h))
+                target_w, target_h = int(w * scale), int(h * scale)
+                infer_img = orig_img.resize((target_w, target_h), Image.BILINEAR)
+            else:
+                infer_img = orig_img
+
             import rembg
             session_rmbg = get_rmbg_session()
-            cutout_pil = rembg.remove(orig_img, session=session_rmbg)
+            cutout_pil = rembg.remove(infer_img, session=session_rmbg)
 
+            # Fast PNG compression (compress_level=1 is ~6x faster than level 6 with zero quality loss)
             buf = io.BytesIO()
-            cutout_pil.save(buf, format='PNG')
+            cutout_pil.save(buf, format='PNG', compress_level=1)
             cutout_b64 = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode('utf-8')
 
             resp = json.dumps({'success': True, 'cutout': cutout_b64}).encode('utf-8')
