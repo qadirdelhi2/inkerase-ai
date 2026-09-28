@@ -64,6 +64,8 @@
   const manualBrushSizeVal = document.getElementById('manualBrushSizeVal');
   const manualBlurDensityInput = document.getElementById('manualBlurDensity');
   const manualBlurDensityVal = document.getElementById('manualBlurDensityVal');
+  const manualBrushFeatherInput = document.getElementById('manualBrushFeather');
+  const manualBrushFeatherVal = document.getElementById('manualBrushFeatherVal');
   const btnUndoBlurBrush = document.getElementById('btnUndoBlurBrush');
   const btnRevertBlurBrush = document.getElementById('btnRevertBlurBrush');
   const btnSaveImageBrush = document.getElementById('btnSaveImageBrush');
@@ -89,6 +91,7 @@
   let blurSourceCanvas = null;      // Offscreen snapshot blurred for manual painting
   let manualBrushRadius = parseInt(manualBrushSizeInput.value, 10);
   let manualBlurDensity = parseInt(manualBlurDensityInput.value, 10);
+  let manualBrushFeather = parseInt(manualBrushFeatherInput ? manualBrushFeatherInput.value : 75, 10);
 
   // Zoom & Pan State
   let scale = 1.0;
@@ -481,11 +484,24 @@
     cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
     if (activeTool === 'bgblur') return;
 
+    // Outer boundary
     cursorCtx.beginPath();
     cursorCtx.arc(x, y, radius, 0, Math.PI * 2);
     cursorCtx.strokeStyle = (activeTool === 'brushblur') ? 'rgba(56, 189, 248, 0.95)' : 'rgba(255, 255, 255, 0.95)';
-    cursorCtx.lineWidth = Math.max(2, radius * 0.07);
+    cursorCtx.lineWidth = Math.max(1.5, radius * 0.05);
     cursorCtx.stroke();
+
+    // If blur brush, draw inner dotted circle showing feather core
+    if (activeTool === 'brushblur') {
+      const innerRadius = Math.max(1, radius * (1.0 - manualBrushFeather / 100.0));
+      cursorCtx.beginPath();
+      cursorCtx.arc(x, y, innerRadius, 0, Math.PI * 2);
+      cursorCtx.setLineDash([3, 3]);
+      cursorCtx.strokeStyle = 'rgba(56, 189, 248, 0.6)';
+      cursorCtx.lineWidth = 1.2;
+      cursorCtx.stroke();
+      cursorCtx.setLineDash([]);
+    }
   }
 
   // --- Tool 1: Tattoo Mask Drawing ---
@@ -532,20 +548,48 @@
     bCtx.drawImage(currentWorkingImage, 0, 0);
   }
 
+  const dabCanvas = document.createElement('canvas');
+  const dabCtx = dabCanvas.getContext('2d');
+
   function drawManualBlurDab(x, y) {
     if (!blurSourceCanvas) return;
+    const R = manualBrushRadius;
+    const D = Math.ceil(R * 2);
+    if (D < 2) return;
+
+    if (dabCanvas.width !== D || dabCanvas.height !== D) {
+      dabCanvas.width = D;
+      dabCanvas.height = D;
+    } else {
+      dabCtx.clearRect(0, 0, D, D);
+    }
+
+    // 1. Draw blurred slice from blurSourceCanvas with translation
+    dabCtx.save();
+    dabCtx.translate(-(x - R), -(y - R));
+    dabCtx.drawImage(blurSourceCanvas, 0, 0);
+    dabCtx.restore();
+
+    // 2. Feather mask using radial gradient (destination-in)
+    dabCtx.globalCompositeOperation = 'destination-in';
+    const innerRadius = Math.max(0, R * (1.0 - manualBrushFeather / 100.0));
+    const grad = dabCtx.createRadialGradient(R, R, innerRadius, R, R, R);
+    grad.addColorStop(0, 'rgba(0, 0, 0, 1)');
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    dabCtx.fillStyle = grad;
+    dabCtx.fillRect(0, 0, D, D);
+    dabCtx.globalCompositeOperation = 'source-over';
+
+    // 3. Composite feathered dab onto base canvas with progressive smooth flow
     baseCtx.save();
-    baseCtx.beginPath();
-    baseCtx.arc(x, y, manualBrushRadius, 0, Math.PI * 2);
-    baseCtx.clip();
-    baseCtx.globalAlpha = 0.38; // Soft progressive build-up
-    baseCtx.drawImage(blurSourceCanvas, 0, 0);
+    baseCtx.globalAlpha = 0.28;
+    baseCtx.drawImage(dabCanvas, x - R, y - R);
     baseCtx.restore();
   }
 
   function drawManualBlurStroke(x1, y1, x2, y2) {
     const dist = Math.hypot(x2 - x1, y2 - y1);
-    const step = Math.max(3, manualBrushRadius * 0.35);
+    const step = Math.max(2, manualBrushRadius * 0.18);
     const steps = Math.ceil(dist / step);
 
     for (let i = 1; i <= steps; i++) {
@@ -569,6 +613,16 @@
     manualBlurDensityVal.textContent = `${manualBlurDensity}px (${desc})`;
     prepareBlurSource();
   });
+
+  if (manualBrushFeatherInput) {
+    manualBrushFeatherInput.addEventListener('input', (e) => {
+      manualBrushFeather = parseInt(e.target.value, 10);
+      let desc = 'Medium';
+      if (manualBrushFeather <= 30) desc = 'Crisp';
+      else if (manualBrushFeather >= 70) desc = 'Soft';
+      manualBrushFeatherVal.textContent = `${manualBrushFeather}% (${desc})`;
+    });
+  }
 
   btnUndoBlurBrush.addEventListener('click', () => {
     if (imageHistory.length > 0) {
