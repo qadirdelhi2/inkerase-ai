@@ -208,13 +208,16 @@
   // Endpoint Resolver for Web & APK compatibility
   const CLOUD_TUNNEL_URL = 'https://introducing-readily-cholesterol-samba.trycloudflare.com';
   function getApiEndpoint(path) {
-    // If inside native Android APK (capacitor://, file://, or non-tunnel localhost)
-    if (window.location.protocol === 'file:' || 
-        window.location.origin.includes('capacitor://') ||
-        (window.location.hostname === 'localhost' && window.location.port !== '8080')) {
-      return `${CLOUD_TUNNEL_URL}${path}`;
+    // In local desktop browser testing (http://127.0.0.1:8080 or http://localhost:8080)
+    if ((window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') && window.location.port === '8080') {
+      return path;
     }
-    return path;
+    // If accessed through the cloud tunnel web page directly
+    if (window.location.origin === CLOUD_TUNNEL_URL) {
+      return path;
+    }
+    // In native Android APK (https://localhost, capacitor://, file://, etc.) or external network
+    return `${CLOUD_TUNNEL_URL}${path}`;
   }
 
   gpuStatusText.textContent = '⚡ Studio AI Active';
