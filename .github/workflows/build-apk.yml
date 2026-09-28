@@ -24,15 +24,12 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Prepare Web Assets
         run: |
           mkdir -p www
           cp -r index.html style.css app.js manifest.json icon-512.png fonts www/
 
-      - name: Install Capacitor CLI & Dependencies
+      - name: Install Dependencies & Init Capacitor
         run: |
           npm init -y
           npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/android@latest
@@ -47,21 +44,10 @@ jobs:
 
       - name: Rename APK
         run: |
-          mv android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/apk/debug/InkErase-AI.apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk InkErase-AI.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: InkErase-AI-APK
-          path: android/app/build/outputs/apk/debug/InkErase-AI.apk
-
-      - name: Create GitHub Release with APK
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
-        with:
-          tag_name: v1.0.0
-          name: "InkErase AI v1.0.0 (Android APK)"
-          body: "Official Android APK release for InkErase AI. Direct APK installation."
-          files: android/app/build/outputs/apk/debug/InkErase-AI.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          path: InkErase-AI.apk
