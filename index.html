@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=20260928_clean_v5">
+  <link rel="stylesheet" href="style.css?v=20260928_clean_v6">
 </head>
 <body>
   <div class="app-container">
@@ -184,6 +184,21 @@
             <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
           </svg>
           <span>Skin Smooth</span>
+        </button>
+
+        <button class="tool-tab" id="tabAdjust" data-tool="adjust" title="Color, Brightness, Contrast & Tone adjustments">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <circle cx="12" cy="12" r="5"/>
+            <line x1="12" y1="1" x2="12" y2="3"/>
+            <line x1="12" y1="21" x2="12" y2="23"/>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+            <line x1="1" y1="12" x2="3" y2="12"/>
+            <line x1="21" y1="12" x2="23" y2="12"/>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+          </svg>
+          <span>Adjust</span>
         </button>
       </div>
 
@@ -435,9 +450,93 @@
           <span>✨ Brush gently over thighs, cellulite, or wrinkles to melt away roughness with natural skin tone.</span>
         </div>
       </div>
+
+      <!-- Panel 5: Color Adjustment (Lighting, Contrast, Saturation, Warmth) -->
+      <div class="tool-panel hidden" id="panelAdjust">
+        <div class="brush-settings dual-sliders">
+          <div class="slider-row">
+            <div class="slider-label">
+              <span>Brightness</span>
+              <span id="adjBrightnessVal">0%</span>
+            </div>
+            <div class="slider-control">
+              <span class="dot-indicator small"></span>
+              <input type="range" id="adjBrightness" min="-50" max="50" value="0" class="custom-range">
+              <span class="dot-indicator large"></span>
+            </div>
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-label">
+              <span>Contrast</span>
+              <span id="adjContrastVal">0%</span>
+            </div>
+            <div class="slider-control">
+              <span class="dot-indicator small"></span>
+              <input type="range" id="adjContrast" min="-50" max="50" value="0" class="custom-range">
+              <span class="dot-indicator large"></span>
+            </div>
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-label">
+              <span>Saturation</span>
+              <span id="adjSaturationVal">0%</span>
+            </div>
+            <div class="slider-control">
+              <span class="dot-indicator small"></span>
+              <input type="range" id="adjSaturation" min="-100" max="100" value="0" class="custom-range">
+              <span class="dot-indicator large"></span>
+            </div>
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-label">
+              <span>Warmth</span>
+              <span id="adjWarmthVal">0</span>
+            </div>
+            <div class="slider-control">
+              <span class="dot-indicator small"></span>
+              <input type="range" id="adjWarmth" min="-50" max="50" value="0" class="custom-range">
+              <span class="dot-indicator large"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="toolbar-actions">
+          <button id="btnResetAdjust" class="tool-btn" title="Reset All Color Sliders">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+              <path d="M3 3v5h5"/>
+            </svg>
+            <span>Reset</span>
+          </button>
+
+          <button id="btnApplyAdjust" class="btn-action-primary" title="Apply Color Adjustments">
+            <div class="btn-glow"></div>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+            <span>Apply Adjust</span>
+          </button>
+
+          <button id="btnSaveImageAdjust" class="tool-btn" title="Save Photo">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            <span>Save</span>
+          </button>
+        </div>
+
+        <div class="hint-bar">
+          <span>🎨 Real-time GPU color grading: Tune exposure, contrast, vibrance & temperature.</span>
+        </div>
+      </div>
     </footer>
   </div>
 
-  <script src="app.js?v=20260928_clean_v5"></script>
+  <script src="app.js?v=20260928_clean_v6"></script>
 </body>
 </html>

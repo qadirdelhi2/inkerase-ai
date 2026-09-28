@@ -39,12 +39,14 @@
   const tabBgBlur = document.getElementById('tabBgBlur');
   const tabBrushBlur = document.getElementById('tabBrushBlur');
   const tabSkinSmooth = document.getElementById('tabSkinSmooth');
+  const tabAdjust = document.getElementById('tabAdjust');
 
   // Tool Panels
   const panelErase = document.getElementById('panelErase');
   const panelBgBlur = document.getElementById('panelBgBlur');
   const panelBrushBlur = document.getElementById('panelBrushBlur');
   const panelSkinSmooth = document.getElementById('panelSkinSmooth');
+  const panelAdjust = document.getElementById('panelAdjust');
 
   // Tool 1: Tattoo Erase Controls
   const brushSizeInput = document.getElementById('brushSize');
@@ -83,6 +85,19 @@
   const btnRevertSkinSmooth = document.getElementById('btnRevertSkinSmooth');
   const btnSaveImageSmooth = document.getElementById('btnSaveImageSmooth');
 
+  // Tool 5: Color Adjustment Controls
+  const adjBrightnessInput = document.getElementById('adjBrightness');
+  const adjBrightnessVal = document.getElementById('adjBrightnessVal');
+  const adjContrastInput = document.getElementById('adjContrast');
+  const adjContrastVal = document.getElementById('adjContrastVal');
+  const adjSaturationInput = document.getElementById('adjSaturation');
+  const adjSaturationVal = document.getElementById('adjSaturationVal');
+  const adjWarmthInput = document.getElementById('adjWarmth');
+  const adjWarmthVal = document.getElementById('adjWarmthVal');
+  const btnResetAdjust = document.getElementById('btnResetAdjust');
+  const btnApplyAdjust = document.getElementById('btnApplyAdjust');
+  const btnSaveImageAdjust = document.getElementById('btnSaveImageAdjust');
+
   // Canvas Contexts
   const baseCtx = baseCanvas.getContext('2d', { willReadFrequently: true });
   const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
@@ -112,6 +127,12 @@
   let skinSmoothRadius = parseInt(skinSmoothBrushSizeInput ? skinSmoothBrushSizeInput.value : 45, 10);
   let skinSmoothStrength = parseInt(skinSmoothStrengthInput ? skinSmoothStrengthInput.value : 12, 10);
   let skinSmoothFeather = parseInt(skinSmoothFeatherInput ? skinSmoothFeatherInput.value : 80, 10);
+
+  // Tool 5: Color Adjustment State
+  let adjustBrightness = 0;
+  let adjustContrast = 0;
+  let adjustSaturation = 0;
+  let adjustWarmth = 0;
 
   // Zoom & Pan State
   let scale = 1.0;
@@ -145,9 +166,11 @@
   function switchStudioTool(tool) {
     if (activeTool === tool) return;
 
-    // If leaving bgblur without applying, restore previous working image
-    if (activeTool === 'bgblur' && currentWorkingImage) {
+    // If leaving bgblur or adjust without applying, restore previous working image
+    if ((activeTool === 'bgblur' || activeTool === 'adjust') && currentWorkingImage) {
+      baseCtx.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
       baseCtx.drawImage(currentWorkingImage, 0, 0);
+      if (activeTool === 'adjust') resetAdjustSliders();
     }
 
     activeTool = tool;
@@ -157,12 +180,14 @@
     tabBgBlur.classList.toggle('active', tool === 'bgblur');
     tabBrushBlur.classList.toggle('active', tool === 'brushblur');
     tabSkinSmooth.classList.toggle('active', tool === 'skinsmooth');
+    tabAdjust.classList.toggle('active', tool === 'adjust');
 
     // Update Panels
     panelErase.classList.toggle('hidden', tool !== 'erase');
     panelBgBlur.classList.toggle('hidden', tool !== 'bgblur');
     panelBrushBlur.classList.toggle('hidden', tool !== 'brushblur');
     panelSkinSmooth.classList.toggle('hidden', tool !== 'skinsmooth');
+    panelAdjust.classList.toggle('hidden', tool !== 'adjust');
 
     // Tool-specific initialization
     if (tool === 'erase') {
@@ -183,6 +208,11 @@
       cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
       prepareSmoothSource();
       updateUndoState();
+    } else if (tool === 'adjust') {
+      clearMask();
+      cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
+      renderLiveAdjust();
+      updateUndoState();
     }
   }
 
@@ -190,6 +220,7 @@
   tabBgBlur.addEventListener('click', () => switchStudioTool('bgblur'));
   tabBrushBlur.addEventListener('click', () => switchStudioTool('brushblur'));
   tabSkinSmooth.addEventListener('click', () => switchStudioTool('skinsmooth'));
+  tabAdjust.addEventListener('click', () => switchStudioTool('adjust'));
 
   // ==========================================
   // 2. Navigation & New Photo Selection
@@ -452,7 +483,7 @@
   // ==========================================
   function startInteraction(clientX, clientY) {
     if (!currentWorkingImage || isComparing) return;
-    if (activeTool === 'bgblur') return; // Background blur uses sliders, not drawing
+    if (activeTool === 'bgblur' || activeTool === 'adjust') return; // Background blur & Adjust use sliders, not drawing
 
     const coords = getCanvasCoords(clientX, clientY);
     lastX = coords.x;
@@ -521,7 +552,7 @@
 
   function drawCursor(x, y, radius) {
     cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
-    if (activeTool === 'bgblur') return;
+    if (activeTool === 'bgblur' || activeTool === 'adjust') return;
 
     // Outer boundary
     cursorCtx.beginPath();
@@ -927,7 +958,142 @@
   btnSaveImageSmooth.addEventListener('click', exportImage);
 
   // ==========================================
-  // 6. Undo State Management
+  // 6. Tool 5: Color Adjustment (Lighting, Contrast, Saturation, Warmth)
+  // ==========================================
+  function buildAdjustFilterString() {
+    const b = 100 + adjustBrightness;
+    const c = 100 + adjustContrast;
+    const s = Math.max(0, 100 + adjustSaturation);
+    let warmthPart = '';
+
+    if (adjustWarmth > 0) {
+      // Warm golden sun-kissed tone
+      warmthPart = ` sepia(${adjustWarmth * 0.45}%) saturate(${100 + adjustWarmth * 0.2}%)`;
+    } else if (adjustWarmth < 0) {
+      // Cool oceanic / twilight tone
+      warmthPart = ` hue-rotate(${adjustWarmth * 0.35}deg)`;
+    }
+
+    return `brightness(${b}%) contrast(${c}%) saturate(${s}%)${warmthPart}`;
+  }
+
+  function renderLiveAdjust() {
+    if (!currentWorkingImage) return;
+    baseCtx.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
+    baseCtx.save();
+    baseCtx.filter = buildAdjustFilterString();
+    baseCtx.drawImage(currentWorkingImage, 0, 0);
+    baseCtx.restore();
+  }
+
+  function resetAdjustSliders() {
+    adjustBrightness = 0;
+    adjustContrast = 0;
+    adjustSaturation = 0;
+    adjustWarmth = 0;
+    if (adjBrightnessInput) adjBrightnessInput.value = 0;
+    if (adjContrastInput) adjContrastInput.value = 0;
+    if (adjSaturationInput) adjSaturationInput.value = 0;
+    if (adjWarmthInput) adjWarmthInput.value = 0;
+    if (adjBrightnessVal) adjBrightnessVal.textContent = '0%';
+    if (adjContrastVal) adjContrastVal.textContent = '0%';
+    if (adjSaturationVal) adjSaturationVal.textContent = '0%';
+    if (adjWarmthVal) adjWarmthVal.textContent = '0';
+    if (currentWorkingImage) {
+      baseCtx.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
+      baseCtx.drawImage(currentWorkingImage, 0, 0);
+    }
+  }
+
+  if (adjBrightnessInput) {
+    adjBrightnessInput.addEventListener('input', (e) => {
+      adjustBrightness = parseInt(e.target.value, 10);
+      const sign = adjustBrightness > 0 ? '+' : '';
+      adjBrightnessVal.textContent = `${sign}${adjustBrightness}%`;
+      renderLiveAdjust();
+    });
+  }
+
+  if (adjContrastInput) {
+    adjContrastInput.addEventListener('input', (e) => {
+      adjustContrast = parseInt(e.target.value, 10);
+      const sign = adjustContrast > 0 ? '+' : '';
+      adjContrastVal.textContent = `${sign}${adjustContrast}%`;
+      renderLiveAdjust();
+    });
+  }
+
+  if (adjSaturationInput) {
+    adjSaturationInput.addEventListener('input', (e) => {
+      adjustSaturation = parseInt(e.target.value, 10);
+      const sign = adjustSaturation > 0 ? '+' : '';
+      adjSaturationVal.textContent = `${sign}${adjustSaturation}%`;
+      renderLiveAdjust();
+    });
+  }
+
+  if (adjWarmthInput) {
+    adjWarmthInput.addEventListener('input', (e) => {
+      adjustWarmth = parseInt(e.target.value, 10);
+      const sign = adjustWarmth > 0 ? '+' : '';
+      adjWarmthVal.textContent = `${sign}${adjustWarmth}`;
+      renderLiveAdjust();
+    });
+  }
+
+  if (btnResetAdjust) {
+    btnResetAdjust.addEventListener('click', resetAdjustSliders);
+  }
+
+  if (btnApplyAdjust) {
+    btnApplyAdjust.addEventListener('click', () => {
+      if (!currentWorkingImage) return;
+
+      saveImageState();
+
+      // Commit baked color filter into currentWorkingImage
+      const baked = document.createElement('canvas');
+      baked.width = baseCanvas.width;
+      baked.height = baseCanvas.height;
+      const bCtx = baked.getContext('2d');
+      bCtx.filter = buildAdjustFilterString();
+      bCtx.drawImage(currentWorkingImage, 0, 0);
+      currentWorkingImage = baked;
+
+      // Invalidate caches
+      cachedSubjectCutout = null;
+      cachedSubjectMask = null;
+      prepareBlurSource();
+      prepareSmoothSource();
+
+      // Reset sliders to 0 for next edits
+      adjustBrightness = 0;
+      adjustContrast = 0;
+      adjustSaturation = 0;
+      adjustWarmth = 0;
+      if (adjBrightnessInput) adjBrightnessInput.value = 0;
+      if (adjContrastInput) adjContrastInput.value = 0;
+      if (adjSaturationInput) adjSaturationInput.value = 0;
+      if (adjWarmthInput) adjWarmthInput.value = 0;
+      if (adjBrightnessVal) adjBrightnessVal.textContent = '0%';
+      if (adjContrastVal) adjContrastVal.textContent = '0%';
+      if (adjSaturationVal) adjSaturationVal.textContent = '0%';
+      if (adjWarmthVal) adjWarmthVal.textContent = '0';
+
+      baseCtx.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
+      baseCtx.drawImage(currentWorkingImage, 0, 0);
+
+      updateUndoState();
+      alert('✓ Color adjustments applied successfully!');
+    });
+  }
+
+  if (btnSaveImageAdjust) {
+    btnSaveImageAdjust.addEventListener('click', exportImage);
+  }
+
+  // ==========================================
+  // 7. Undo State Management
   // ==========================================
   function saveImageState() {
     if (!currentWorkingImage) return;
