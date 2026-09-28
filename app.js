@@ -207,8 +207,26 @@
   let lastX = 0;
   let lastY = 0;
   let eraseBrushRadius = parseInt(brushSizeInput.value, 10);
-  // Endpoint Resolver for Web & APK compatibility
-  const CLOUD_TUNNEL_URL = 'https://introducing-readily-cholesterol-samba.trycloudflare.com';
+  // Dynamic Endpoint Resolver for Web & APK compatibility
+  let CLOUD_TUNNEL_URL = 'https://administered-volt-thoughts-submissions.trycloudflare.com';
+  const GITHUB_ENDPOINT_URL = 'https://raw.githubusercontent.com/qadirdelhi2/inkerase-ai/master/endpoint.json';
+
+  async function syncBackendEndpoint() {
+    try {
+      const res = await fetch(GITHUB_ENDPOINT_URL, { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.url) {
+          CLOUD_TUNNEL_URL = data.url.replace(/\/+$/, '');
+          console.log('[InkErase] Active AI backend synced from cloud:', CLOUD_TUNNEL_URL);
+        }
+      }
+    } catch (e) {
+      console.warn('[InkErase] Cloud sync fallback to active preset:', CLOUD_TUNNEL_URL);
+    }
+  }
+  syncBackendEndpoint();
+
   function getApiEndpoint(path) {
     // In local desktop browser testing (http://127.0.0.1:8080 or http://localhost:8080)
     if ((window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') && window.location.port === '8080') {
