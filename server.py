@@ -194,7 +194,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
 
         elif self.path == '/api/segment_subject':
-            # Extract high-resolution foreground alpha mask using BRIA-RMBG
+            # Extract high-resolution foreground alpha cutout using BRIA-RMBG
             content_length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(content_length)
             data = json.loads(body.decode('utf-8'))
@@ -204,13 +204,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
             import rembg
             session_rmbg = get_rmbg_session()
-            mask_pil = rembg.remove(orig_img, session=session_rmbg, only_mask=True)
+            cutout_pil = rembg.remove(orig_img, session=session_rmbg)
 
             buf = io.BytesIO()
-            mask_pil.save(buf, format='PNG')
-            mask_b64 = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode('utf-8')
+            cutout_pil.save(buf, format='PNG')
+            cutout_b64 = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode('utf-8')
 
-            resp = json.dumps({'success': True, 'mask': mask_b64}).encode('utf-8')
+            resp = json.dumps({'success': True, 'cutout': cutout_b64}).encode('utf-8')
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Access-Control-Allow-Origin', '*')

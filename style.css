@@ -537,27 +537,33 @@ body {
 .studio-tool-tabs {
   display: flex;
   align-items: center;
-  justify-content: center;
   background: rgba(0, 0, 0, 0.45);
   border: 1px solid var(--border-glass);
   border-radius: 16px;
   padding: 4px;
   gap: 4px;
   margin-bottom: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.studio-tool-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .tool-tab {
   flex: 1;
+  min-width: fit-content;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 5px;
   background: transparent;
   border: none;
   color: var(--text-muted);
-  font-size: 0.74rem;
+  font-size: 0.72rem;
   font-weight: 700;
-  padding: 8px 6px;
+  padding: 8px 8px;
   border-radius: 12px;
   cursor: pointer;
   transition: all 0.2s ease;

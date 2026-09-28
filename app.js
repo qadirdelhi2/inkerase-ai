@@ -38,11 +38,13 @@
   const tabErase = document.getElementById('tabErase');
   const tabBgBlur = document.getElementById('tabBgBlur');
   const tabBrushBlur = document.getElementById('tabBrushBlur');
+  const tabSkinSmooth = document.getElementById('tabSkinSmooth');
 
   // Tool Panels
   const panelErase = document.getElementById('panelErase');
   const panelBgBlur = document.getElementById('panelBgBlur');
   const panelBrushBlur = document.getElementById('panelBrushBlur');
+  const panelSkinSmooth = document.getElementById('panelSkinSmooth');
 
   // Tool 1: Tattoo Erase Controls
   const brushSizeInput = document.getElementById('brushSize');
@@ -70,6 +72,17 @@
   const btnRevertBlurBrush = document.getElementById('btnRevertBlurBrush');
   const btnSaveImageBrush = document.getElementById('btnSaveImageBrush');
 
+  // Tool 4: Skin Smooth Controls
+  const skinSmoothBrushSizeInput = document.getElementById('skinSmoothBrushSize');
+  const skinSmoothBrushSizeVal = document.getElementById('skinSmoothBrushSizeVal');
+  const skinSmoothStrengthInput = document.getElementById('skinSmoothStrength');
+  const skinSmoothStrengthVal = document.getElementById('skinSmoothStrengthVal');
+  const skinSmoothFeatherInput = document.getElementById('skinSmoothFeather');
+  const skinSmoothFeatherVal = document.getElementById('skinSmoothFeatherVal');
+  const btnUndoSkinSmooth = document.getElementById('btnUndoSkinSmooth');
+  const btnRevertSkinSmooth = document.getElementById('btnRevertSkinSmooth');
+  const btnSaveImageSmooth = document.getElementById('btnSaveImageSmooth');
+
   // Canvas Contexts
   const baseCtx = baseCanvas.getContext('2d', { willReadFrequently: true });
   const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
@@ -84,7 +97,7 @@
   const MAX_HISTORY = 12;
 
   // Background Blur Cache
-  let cachedSubjectMask = null;     // Canvas containing subject alpha mask
+  let cachedSubjectCutout = null;   // Cutout Image with transparent BG
   let isExtractingMask = false;
 
   // Manual Blur Brush State
@@ -92,6 +105,12 @@
   let manualBrushRadius = parseInt(manualBrushSizeInput.value, 10);
   let manualBlurDensity = parseInt(manualBlurDensityInput.value, 10);
   let manualBrushFeather = parseInt(manualBrushFeatherInput ? manualBrushFeatherInput.value : 75, 10);
+
+  // Tool 4: Skin Smooth State (Wrinkles & Cellulite Softener)
+  let smoothSourceCanvas = null;    // Offscreen snapshot smoothed for skin brush
+  let skinSmoothRadius = parseInt(skinSmoothBrushSizeInput ? skinSmoothBrushSizeInput.value : 45, 10);
+  let skinSmoothStrength = parseInt(skinSmoothStrengthInput ? skinSmoothStrengthInput.value : 12, 10);
+  let skinSmoothFeather = parseInt(skinSmoothFeatherInput ? skinSmoothFeatherInput.value : 80, 10);
 
   // Zoom & Pan State
   let scale = 1.0;
@@ -136,11 +155,13 @@
     tabErase.classList.toggle('active', tool === 'erase');
     tabBgBlur.classList.toggle('active', tool === 'bgblur');
     tabBrushBlur.classList.toggle('active', tool === 'brushblur');
+    tabSkinSmooth.classList.toggle('active', tool === 'skinsmooth');
 
     // Update Panels
     panelErase.classList.toggle('hidden', tool !== 'erase');
     panelBgBlur.classList.toggle('hidden', tool !== 'bgblur');
     panelBrushBlur.classList.toggle('hidden', tool !== 'brushblur');
+    panelSkinSmooth.classList.toggle('hidden', tool !== 'skinsmooth');
 
     // Tool-specific initialization
     if (tool === 'erase') {
@@ -156,12 +177,18 @@
       cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
       prepareBlurSource();
       updateUndoState();
+    } else if (tool === 'skinsmooth') {
+      clearMask();
+      cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
+      prepareSmoothSource();
+      updateUndoState();
     }
   }
 
   tabErase.addEventListener('click', () => switchStudioTool('erase'));
   tabBgBlur.addEventListener('click', () => switchStudioTool('bgblur'));
   tabBrushBlur.addEventListener('click', () => switchStudioTool('brushblur'));
+  tabSkinSmooth.addEventListener('click', () => switchStudioTool('skinsmooth'));
 
   // ==========================================
   // 2. Navigation & New Photo Selection
@@ -438,6 +465,10 @@
       saveImageState();
       prepareBlurSource();
       drawManualBlurDab(lastX, lastY);
+    } else if (activeTool === 'skinsmooth') {
+      saveImageState();
+      prepareSmoothSource();
+      drawSkinSmoothDab(lastX, lastY);
     }
   }
 
@@ -445,7 +476,10 @@
     const coords = getCanvasCoords(clientX, clientY);
 
     // Update cursor circle
-    const activeRadius = (activeTool === 'brushblur') ? manualBrushRadius : eraseBrushRadius;
+    let activeRadius = eraseBrushRadius;
+    if (activeTool === 'brushblur') activeRadius = manualBrushRadius;
+    else if (activeTool === 'skinsmooth') activeRadius = skinSmoothRadius;
+
     drawCursor(coords.x, coords.y, activeRadius);
 
     if (!isDrawing || !currentWorkingImage || isComparing) return;
@@ -458,6 +492,10 @@
       drawManualBlurStroke(lastX, lastY, coords.x, coords.y);
       lastX = coords.x;
       lastY = coords.y;
+    } else if (activeTool === 'skinsmooth') {
+      drawSkinSmoothStroke(lastX, lastY, coords.x, coords.y);
+      lastX = coords.x;
+      lastY = coords.y;
     }
   }
 
@@ -466,15 +504,15 @@
     isDrawing = false;
     cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
 
-    if (activeTool === 'brushblur') {
+    if (activeTool === 'brushblur' || activeTool === 'skinsmooth') {
       // Bake manual stroke to working image
       const snap = document.createElement('canvas');
       snap.width = baseCanvas.width;
       snap.height = baseCanvas.height;
       snap.getContext('2d').drawImage(baseCanvas, 0, 0);
       currentWorkingImage = snap;
-      // Invalidate cached masks because image pixels changed
-      cachedSubjectMask = null;
+      // Invalidate cached cutout because image pixels changed
+      cachedSubjectCutout = null;
     }
 
     updateUndoState();
@@ -487,17 +525,24 @@
     // Outer boundary
     cursorCtx.beginPath();
     cursorCtx.arc(x, y, radius, 0, Math.PI * 2);
-    cursorCtx.strokeStyle = (activeTool === 'brushblur') ? 'rgba(56, 189, 248, 0.95)' : 'rgba(255, 255, 255, 0.95)';
+    if (activeTool === 'skinsmooth') {
+      cursorCtx.strokeStyle = 'rgba(251, 191, 36, 0.95)'; // Amber gold glow for skin smoothing
+    } else if (activeTool === 'brushblur') {
+      cursorCtx.strokeStyle = 'rgba(56, 189, 248, 0.95)'; // Cyan for blur
+    } else {
+      cursorCtx.strokeStyle = 'rgba(255, 255, 255, 0.95)'; // White for erase
+    }
     cursorCtx.lineWidth = Math.max(1.5, radius * 0.05);
     cursorCtx.stroke();
 
-    // If blur brush, draw inner dotted circle showing feather core
-    if (activeTool === 'brushblur') {
-      const innerRadius = Math.max(1, radius * (1.0 - manualBrushFeather / 100.0));
+    // If blur brush or skin smooth, draw inner dotted circle showing feather core
+    if (activeTool === 'brushblur' || activeTool === 'skinsmooth') {
+      const featherVal = (activeTool === 'skinsmooth') ? skinSmoothFeather : manualBrushFeather;
+      const innerRadius = Math.max(1, radius * (1.0 - featherVal / 100.0));
       cursorCtx.beginPath();
       cursorCtx.arc(x, y, innerRadius, 0, Math.PI * 2);
       cursorCtx.setLineDash([3, 3]);
-      cursorCtx.strokeStyle = 'rgba(56, 189, 248, 0.6)';
+      cursorCtx.strokeStyle = (activeTool === 'skinsmooth') ? 'rgba(251, 191, 36, 0.65)' : 'rgba(56, 189, 248, 0.6)';
       cursorCtx.lineWidth = 1.2;
       cursorCtx.stroke();
       cursorCtx.setLineDash([]);
@@ -652,7 +697,7 @@
   async function initBackgroundBlur() {
     if (!currentWorkingImage) return;
 
-    if (!cachedSubjectMask) {
+    if (!cachedSubjectCutout) {
       await extractSubjectMask();
     }
 
@@ -679,20 +724,15 @@
 
       progressFill.style.width = '85%';
 
-      // Load mask image into offscreen canvas
+      // Load transparent cutout image
       await new Promise((resolve, reject) => {
-        const maskImg = new Image();
-        maskImg.onload = () => {
-          const mCanvas = document.createElement('canvas');
-          mCanvas.width = baseCanvas.width;
-          mCanvas.height = baseCanvas.height;
-          const mCtx = mCanvas.getContext('2d');
-          mCtx.drawImage(maskImg, 0, 0, baseCanvas.width, baseCanvas.height);
-          cachedSubjectMask = mCanvas;
+        const cutoutImg = new Image();
+        cutoutImg.onload = () => {
+          cachedSubjectCutout = cutoutImg;
           resolve();
         };
-        maskImg.onerror = reject;
-        maskImg.src = data.mask;
+        cutoutImg.onerror = reject;
+        cutoutImg.src = data.cutout;
       });
 
       showProgress(false);
@@ -706,7 +746,7 @@
   }
 
   function renderLiveBokeh() {
-    if (!currentWorkingImage || !cachedSubjectMask) return;
+    if (!currentWorkingImage || !cachedSubjectCutout) return;
 
     const blurPx = parseInt(bgBlurDensityInput.value, 10);
 
@@ -718,19 +758,10 @@
     bgCtx.filter = `blur(${blurPx}px)`;
     bgCtx.drawImage(currentWorkingImage, 0, 0);
 
-    // 2. Offscreen crisp subject cutout
-    const offPerson = document.createElement('canvas');
-    offPerson.width = baseCanvas.width;
-    offPerson.height = baseCanvas.height;
-    const pCtx = offPerson.getContext('2d');
-    pCtx.drawImage(currentWorkingImage, 0, 0);
-    pCtx.globalCompositeOperation = 'destination-in';
-    pCtx.drawImage(cachedSubjectMask, 0, 0);
-
-    // 3. Composite onto base canvas: Blurred background first, sharp subject on top
+    // 2. Draw blurred background, then crisp subject cutout on top
     baseCtx.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
     baseCtx.drawImage(offBg, 0, 0);
-    baseCtx.drawImage(offPerson, 0, 0);
+    baseCtx.drawImage(cachedSubjectCutout, 0, 0, baseCanvas.width, baseCanvas.height);
   }
 
   bgBlurDensityInput.addEventListener('input', (e) => {
@@ -766,6 +797,114 @@
       bgBlurDensityVal.textContent = '20px (Medium Bokeh)';
     }
   });
+
+  // ==========================================
+  // 6. Tool 4: Skin Smooth Drawing (Wrinkles & Cellulite Softener)
+  // ==========================================
+  function prepareSmoothSource() {
+    if (!currentWorkingImage) return;
+    smoothSourceCanvas = document.createElement('canvas');
+    smoothSourceCanvas.width = baseCanvas.width;
+    smoothSourceCanvas.height = baseCanvas.height;
+    const sCtx = smoothSourceCanvas.getContext('2d');
+    sCtx.filter = `blur(${skinSmoothStrength}px)`;
+    sCtx.drawImage(currentWorkingImage, 0, 0);
+  }
+
+  function drawSkinSmoothDab(x, y) {
+    if (!smoothSourceCanvas) return;
+    const R = skinSmoothRadius;
+    const D = Math.ceil(R * 2);
+    if (D < 2) return;
+
+    if (dabCanvas.width !== D || dabCanvas.height !== D) {
+      dabCanvas.width = D;
+      dabCanvas.height = D;
+    } else {
+      dabCtx.clearRect(0, 0, D, D);
+    }
+
+    // 1. Draw smoothed slice from smoothSourceCanvas with translation
+    dabCtx.save();
+    dabCtx.translate(-(x - R), -(y - R));
+    dabCtx.drawImage(smoothSourceCanvas, 0, 0);
+    dabCtx.restore();
+
+    // 2. Feather mask using radial gradient (destination-in)
+    dabCtx.globalCompositeOperation = 'destination-in';
+    const innerRadius = Math.max(0, R * (1.0 - skinSmoothFeather / 100.0));
+    const grad = dabCtx.createRadialGradient(R, R, innerRadius, R, R, R);
+    grad.addColorStop(0, 'rgba(0, 0, 0, 1)');
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    dabCtx.fillStyle = grad;
+    dabCtx.fillRect(0, 0, D, D);
+    dabCtx.globalCompositeOperation = 'source-over';
+
+    // 3. Composite feathered dab onto base canvas with progressive smooth flow
+    baseCtx.save();
+    baseCtx.globalAlpha = 0.22; // Delicate buildable flow for flawless skin blending
+    baseCtx.drawImage(dabCanvas, x - R, y - R);
+    baseCtx.restore();
+  }
+
+  function drawSkinSmoothStroke(x1, y1, x2, y2) {
+    const dist = Math.hypot(x2 - x1, y2 - y1);
+    const step = Math.max(2, skinSmoothRadius * 0.18);
+    const steps = Math.ceil(dist / step);
+
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const curX = x1 + (x2 - x1) * t;
+      const curY = y1 + (y2 - y1) * t;
+      drawSkinSmoothDab(curX, curY);
+    }
+  }
+
+  skinSmoothBrushSizeInput.addEventListener('input', (e) => {
+    skinSmoothRadius = parseInt(e.target.value, 10);
+    skinSmoothBrushSizeVal.textContent = `${skinSmoothRadius}px`;
+  });
+
+  skinSmoothStrengthInput.addEventListener('input', (e) => {
+    skinSmoothStrength = parseInt(e.target.value, 10);
+    let desc = 'Silk';
+    if (skinSmoothStrength <= 8) desc = 'Light';
+    else if (skinSmoothStrength >= 20) desc = 'Ultra Smooth';
+    skinSmoothStrengthVal.textContent = `${skinSmoothStrength}px (${desc})`;
+    prepareSmoothSource();
+  });
+
+  skinSmoothFeatherInput.addEventListener('input', (e) => {
+    skinSmoothFeather = parseInt(e.target.value, 10);
+    let desc = 'Natural';
+    if (skinSmoothFeather <= 40) desc = 'Crisp';
+    else if (skinSmoothFeather >= 85) desc = 'Ultra Soft';
+    skinSmoothFeatherVal.textContent = `${skinSmoothFeather}% (${desc})`;
+  });
+
+  btnUndoSkinSmooth.addEventListener('click', () => {
+    if (imageHistory.length > 0) {
+      const prevState = imageHistory.pop();
+      currentWorkingImage = prevState;
+      baseCtx.drawImage(prevState, 0, 0);
+      prepareSmoothSource();
+      cachedSubjectCutout = null;
+      updateUndoState();
+    }
+  });
+
+  btnRevertSkinSmooth.addEventListener('click', () => {
+    if (pristineOriginalImage) {
+      saveImageState();
+      currentWorkingImage = pristineOriginalImage;
+      baseCtx.drawImage(pristineOriginalImage, 0, 0);
+      prepareSmoothSource();
+      cachedSubjectCutout = null;
+      updateUndoState();
+    }
+  });
+
+  btnSaveImageSmooth.addEventListener('click', saveFinalImage);
 
   // ==========================================
   // 6. Undo State Management
