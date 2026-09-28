@@ -1,0 +1,20 @@
+# Ignore large AI model weights & binary executables
+*.onnx
+*.exe
+__pycache__/
+*.pyc
+
+# Ignore local test images and logs
+*.jpg
+*.webp
+test_*.py
+verify_*.py
+
+# Node & Android build outputs
+node_modules/
+android/
+www/
+dist/
+build/
+.gradle/
+local.properties

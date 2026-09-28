@@ -1,0 +1,10 @@
+{
+  "appId": "com.inkerase.ai",
+  "appName": "InkErase AI",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "server": {
+    "cleartext": true,
+    "androidScheme": "https"
+  }
+}

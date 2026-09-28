@@ -205,7 +205,17 @@
   let lastX = 0;
   let lastY = 0;
   let eraseBrushRadius = parseInt(brushSizeInput.value, 10);
-  let isComparing = false;
+  // Endpoint Resolver for Web & APK compatibility
+  const CLOUD_TUNNEL_URL = 'https://introducing-readily-cholesterol-samba.trycloudflare.com';
+  function getApiEndpoint(path) {
+    // If inside native Android APK (capacitor://, file://, or non-tunnel localhost)
+    if (window.location.protocol === 'file:' || 
+        window.location.origin.includes('capacitor://') ||
+        (window.location.hostname === 'localhost' && window.location.port !== '8080')) {
+      return `${CLOUD_TUNNEL_URL}${path}`;
+    }
+    return path;
+  }
 
   gpuStatusText.textContent = '⚡ Studio AI Active';
 
@@ -836,7 +846,7 @@
 
       progressFill.style.width = '65%';
 
-      const res = await fetch('/api/segment_subject', {
+      const res = await fetch(getApiEndpoint('/api/segment_subject'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image: imgB64 })
@@ -1700,7 +1710,7 @@
 
       progressFill.style.width = '70%';
 
-      const response = await fetch('/api/inpaint', {
+      const response = await fetch(getApiEndpoint('/api/inpaint'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image: imageBase64, mask: maskBase64 })
