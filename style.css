@@ -1,3 +1,30 @@
+/* --- Local Font Declarations --- */
+@font-face {
+  font-family: 'Permanent Marker';
+  src: url('fonts/PermanentMarker.ttf') format('truetype');
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Luckiest Guy';
+  src: url('fonts/LuckiestGuy-Regular.ttf') format('truetype');
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Amatic SC';
+  src: url('fonts/AmaticSC-Regular.ttf') format('truetype');
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Caviar Dreams';
+  src: url('fonts/CaviarDreams.ttf') format('truetype');
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Aleo';
+  src: url('fonts/Aleo-Regular.otf') format('opentype');
+  font-display: swap;
+}
+
 :root {
   --bg-dark: #080c14;
   --bg-surface: #111827;
@@ -1404,6 +1431,379 @@ body {
 .btn-remove-angle:hover {
   background: #ff6b81;
   color: #ffffff;
+}
+
+/* --- Text Studio Overlay Layer & On-Canvas Element --- */
+.text-overlay-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 25;
+}
+
+.text-box-element {
+  position: absolute;
+  pointer-events: auto;
+  cursor: grab;
+  padding: 8px 14px;
+  border: 1.5px dashed rgba(99, 102, 241, 0.85);
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+  user-select: none;
+  box-sizing: border-box;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-width: 90%;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  transform: translate(-50%, -50%);
+}
+
+.text-box-element:active,
+.text-box-element.dragging {
+  cursor: grabbing;
+  border-color: #38bdf8;
+  box-shadow: 0 0 15px rgba(56, 189, 248, 0.4);
+}
+
+.text-content-display {
+  display: inline-block;
+  line-height: 1.15;
+  transition: all 0.1s ease;
+}
+
+/* Text Effect Styles */
+.text-box-element.effect-border .text-content-display {
+  -webkit-text-stroke: 1.5px #000000;
+  text-shadow: 0 0 2px #000000;
+}
+
+.text-box-element.effect-shadow .text-content-display {
+  text-shadow: 0 4px 12px rgba(0, 0, 0, 0.95), 0 2px 4px rgba(0, 0, 0, 0.85);
+}
+
+.text-box-element.effect-glow .text-content-display {
+  text-shadow: 0 0 10px currentColor, 0 0 20px currentColor, 0 0 32px currentColor;
+}
+
+.text-box-element.effect-box {
+  background: rgba(0, 0, 0, 0.72);
+  border-radius: 12px;
+  padding: 10px 18px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+}
+
+.text-ctrl-btn {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+  z-index: 30;
+  transition: transform 0.15s ease;
+}
+
+.text-ctrl-btn:active {
+  transform: scale(1.15);
+}
+
+.text-btn-del {
+  top: -11px;
+  right: -11px;
+  background: #f43f5e;
+  color: #ffffff;
+  border: 1.5px solid #080c14;
+}
+
+.text-btn-drag {
+  bottom: -11px;
+  right: -11px;
+  background: #6366f1;
+  color: #ffffff;
+  border: 1.5px solid #080c14;
+  cursor: grab;
+}
+
+/* --- Panel 6: Text Studio Controls --- */
+.text-input-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-glass);
+  border-radius: 14px;
+  padding: 4px 8px 4px 12px;
+  transition: border-color 0.2s;
+}
+
+.text-input-group:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 12px var(--primary-glow);
+}
+
+.text-studio-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-main);
+  font-size: 0.95rem;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 6px 0;
+}
+
+.btn-clear-text {
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  color: var(--text-muted);
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  transition: all 0.15s;
+}
+
+.btn-clear-text:hover {
+  background: #f43f5e;
+  color: white;
+}
+
+.settings-subgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.subgroup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0 2px;
+}
+
+.subgroup-active-tag {
+  color: #38bdf8;
+  font-weight: 800;
+  text-transform: none;
+}
+
+/* Font Chips Scroll */
+.font-chips-scroll {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 2px 1px;
+}
+
+.font-chips-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.font-chip {
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-glass);
+  color: var(--text-main);
+  padding: 7px 14px;
+  border-radius: 12px;
+  font-size: 0.86rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.font-chip:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.font-chip.active {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.35), rgba(56, 189, 248, 0.3));
+  border-color: #38bdf8;
+  color: #ffffff;
+  box-shadow: 0 2px 12px rgba(56, 189, 248, 0.3);
+}
+
+/* Text Formatting & Effects */
+.text-format-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.format-btn-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--border-glass);
+  border-radius: 12px;
+  padding: 3px;
+}
+
+.format-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--border-glass);
+  margin: 0 2px;
+}
+
+.format-toggle-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  width: 32px;
+  height: 30px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  transition: all 0.15s ease;
+}
+
+.format-toggle-btn:hover {
+  color: var(--text-main);
+}
+
+.format-toggle-btn.active {
+  background: var(--primary);
+  color: #ffffff;
+  box-shadow: 0 2px 8px var(--primary-glow);
+}
+
+.effects-btn-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--border-glass);
+  border-radius: 12px;
+  padding: 3px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.effects-btn-group::-webkit-scrollbar {
+  display: none;
+}
+
+.effect-pill {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.effect-pill:hover {
+  color: var(--text-main);
+}
+
+.effect-pill.active {
+  background: rgba(255, 255, 255, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+}
+
+/* Color Swatches */
+.color-swatches-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 3px 2px;
+}
+
+.color-swatches-row::-webkit-scrollbar {
+  display: none;
+}
+
+.color-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.color-swatch:hover {
+  transform: scale(1.12);
+}
+
+.color-swatch.active {
+  transform: scale(1.18);
+  border-color: #38bdf8;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.6);
+}
+
+.custom-color-picker-label {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-glass);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.custom-color-picker-label:hover {
+  transform: scale(1.12);
+}
+
+.hidden-color-input {
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+  cursor: pointer;
+}
+
+.color-picker-wheel {
+  font-size: 13px;
+  line-height: 1;
 }
 
 .hidden {

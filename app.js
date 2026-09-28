@@ -98,13 +98,41 @@
   const btnApplyAdjust = document.getElementById('btnApplyAdjust');
   const btnSaveImageAdjust = document.getElementById('btnSaveImageAdjust');
 
+  // Tool 6: Text Studio Controls
+  const tabText = document.getElementById('tabText');
+  const panelText = document.getElementById('panelText');
+  const textOverlayLayer = document.getElementById('textOverlayLayer');
+  const textBoxElement = document.getElementById('textBoxElement');
+  const textContentDisplay = document.getElementById('textContentDisplay');
+  const btnDeleteText = document.getElementById('btnDeleteText');
+  const btnDragText = document.getElementById('btnDragText');
+  const textStudioInput = document.getElementById('textStudioInput');
+  const btnClearTextInput = document.getElementById('btnClearTextInput');
+  const fontChipsScroll = document.getElementById('fontChipsScroll');
+  const activeFontTag = document.getElementById('activeFontTag');
+  const activeColorTag = document.getElementById('activeColorTag');
+  const btnTextBold = document.getElementById('btnTextBold');
+  const btnTextItalic = document.getElementById('btnTextItalic');
+  const btnTextUnderline = document.getElementById('btnTextUnderline');
+  const btnTextAlignCenter = document.getElementById('btnTextAlignCenter');
+  const btnTextAlignLeft = document.getElementById('btnTextAlignLeft');
+  const btnTextAlignRight = document.getElementById('btnTextAlignRight');
+  const textColorPicker = document.getElementById('textColorPicker');
+  const textSizeSlider = document.getElementById('textSizeSlider');
+  const textSizeVal = document.getElementById('textSizeVal');
+  const textOpacitySlider = document.getElementById('textOpacitySlider');
+  const textOpacityVal = document.getElementById('textOpacityVal');
+  const btnResetText = document.getElementById('btnResetText');
+  const btnApplyText = document.getElementById('btnApplyText');
+  const btnSaveImageText = document.getElementById('btnSaveImageText');
+
   // Canvas Contexts
   const baseCtx = baseCanvas.getContext('2d', { willReadFrequently: true });
   const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
   const cursorCtx = cursorCanvas.getContext('2d');
 
   // State Management
-  let activeTool = 'erase';         // 'erase' | 'bgblur' | 'brushblur'
+  let activeTool = 'erase';         // 'erase' | 'bgblur' | 'brushblur' | 'skinsmooth' | 'adjust' | 'text'
   let pristineOriginalImage = null; // Unaltered original for compare
   let currentWorkingImage = null;   // Active baked image
   let imageHistory = [];            // Undo stack for image commits
@@ -133,6 +161,25 @@
   let adjustContrast = 0;
   let adjustSaturation = 0;
   let adjustWarmth = 0;
+
+  // Tool 6: Text Studio State
+  let textString = 'Summer Vibes';
+  let textFont = 'Inter';
+  let textSize = 38;
+  let textOpacity = 1.0;
+  let textColor = '#ffffff';
+  let textBold = false;
+  let textItalic = false;
+  let textUnderline = false;
+  let textAlign = 'center';
+  let textEffect = 'none'; // 'none' | 'border' | 'shadow' | 'glow' | 'box'
+  let textDisplayX = 0;
+  let textDisplayY = 0;
+  let isTextDragging = false;
+  let dragStartPointerX = 0;
+  let dragStartPointerY = 0;
+  let dragStartTextX = 0;
+  let dragStartTextY = 0;
 
   // Zoom & Pan State
   let scale = 1.0;
@@ -181,6 +228,7 @@
     tabBrushBlur.classList.toggle('active', tool === 'brushblur');
     tabSkinSmooth.classList.toggle('active', tool === 'skinsmooth');
     tabAdjust.classList.toggle('active', tool === 'adjust');
+    if (tabText) tabText.classList.toggle('active', tool === 'text');
 
     // Update Panels
     panelErase.classList.toggle('hidden', tool !== 'erase');
@@ -188,6 +236,10 @@
     panelBrushBlur.classList.toggle('hidden', tool !== 'brushblur');
     panelSkinSmooth.classList.toggle('hidden', tool !== 'skinsmooth');
     panelAdjust.classList.toggle('hidden', tool !== 'adjust');
+    if (panelText) panelText.classList.toggle('hidden', tool !== 'text');
+
+    // Update Canvas Overlays
+    if (textOverlayLayer) textOverlayLayer.classList.toggle('hidden', tool !== 'text');
 
     // Tool-specific initialization
     if (tool === 'erase') {
@@ -213,6 +265,11 @@
       cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
       renderLiveAdjust();
       updateUndoState();
+    } else if (tool === 'text') {
+      clearMask();
+      cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
+      updateTextPreview();
+      updateUndoState();
     }
   }
 
@@ -221,6 +278,7 @@
   tabBrushBlur.addEventListener('click', () => switchStudioTool('brushblur'));
   tabSkinSmooth.addEventListener('click', () => switchStudioTool('skinsmooth'));
   tabAdjust.addEventListener('click', () => switchStudioTool('adjust'));
+  if (tabText) tabText.addEventListener('click', () => switchStudioTool('text'));
 
   // ==========================================
   // 2. Navigation & New Photo Selection
@@ -290,6 +348,14 @@
       c.style.width = `${displayWidth}px`;
       c.style.height = `${displayHeight}px`;
     });
+
+    if (textOverlayLayer) {
+      textOverlayLayer.style.width = `${displayWidth}px`;
+      textOverlayLayer.style.height = `${displayHeight}px`;
+    }
+    textDisplayX = Math.round(displayWidth * 0.5);
+    textDisplayY = Math.round(displayHeight * 0.5);
+    updateTextPreview();
 
     baseCtx.drawImage(img, 0, 0);
     clearMask();
@@ -483,7 +549,7 @@
   // ==========================================
   function startInteraction(clientX, clientY) {
     if (!currentWorkingImage || isComparing) return;
-    if (activeTool === 'bgblur' || activeTool === 'adjust') return; // Background blur & Adjust use sliders, not drawing
+    if (activeTool === 'bgblur' || activeTool === 'adjust' || activeTool === 'text') return;
 
     const coords = getCanvasCoords(clientX, clientY);
     lastX = coords.x;
@@ -505,6 +571,11 @@
   }
 
   function moveInteraction(clientX, clientY) {
+    if (activeTool === 'bgblur' || activeTool === 'adjust' || activeTool === 'text') {
+      cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
+      return;
+    }
+
     const coords = getCanvasCoords(clientX, clientY);
 
     // Update cursor circle
@@ -1090,6 +1161,388 @@
 
   if (btnSaveImageAdjust) {
     btnSaveImageAdjust.addEventListener('click', exportImage);
+  }
+
+  // ==========================================
+  // 6. Tool 6: Text Studio (Google Fonts, Typography, Styles, Drag & Bake)
+  // ==========================================
+  function updateTextPreview() {
+    if (!textBoxElement || !textContentDisplay) return;
+
+    // Update Text Content
+    textContentDisplay.textContent = textString || ' ';
+
+    // Typography styling
+    textBoxElement.style.fontFamily = textFont;
+    textBoxElement.style.fontSize = `${textSize}px`;
+    textBoxElement.style.fontWeight = textBold ? '800' : '600';
+    textBoxElement.style.fontStyle = textItalic ? 'italic' : 'normal';
+    textContentDisplay.style.textDecoration = textUnderline ? 'underline' : 'none';
+    textBoxElement.style.textAlign = textAlign;
+    textBoxElement.style.color = textColor;
+    textBoxElement.style.opacity = textOpacity;
+
+    // Effect Classes
+    textBoxElement.classList.toggle('effect-border', textEffect === 'border');
+    textBoxElement.classList.toggle('effect-shadow', textEffect === 'shadow');
+    textBoxElement.classList.toggle('effect-glow', textEffect === 'glow');
+    textBoxElement.classList.toggle('effect-box', textEffect === 'box');
+
+    // Canvas Position (centered around textDisplayX, textDisplayY)
+    textBoxElement.style.left = `${textDisplayX}px`;
+    textBoxElement.style.top = `${textDisplayY}px`;
+  }
+
+  // Pointer & Touch Dragging for Text on Canvas
+  function handleTextDragStart(e) {
+    if (activeTool !== 'text') return;
+    isTextDragging = true;
+    textBoxElement.classList.add('dragging');
+    const pt = e.touches ? e.touches[0] : e;
+    dragStartPointerX = pt.clientX;
+    dragStartPointerY = pt.clientY;
+    dragStartTextX = textDisplayX;
+    dragStartTextY = textDisplayY;
+    e.stopPropagation();
+  }
+
+  function handleTextDragMove(e) {
+    if (!isTextDragging) return;
+    const pt = e.touches ? e.touches[0] : e;
+    const dx = (pt.clientX - dragStartPointerX) / scale;
+    const dy = (pt.clientY - dragStartPointerY) / scale;
+
+    const clampW = displayWidth || 400;
+    const clampH = displayHeight || 400;
+    textDisplayX = Math.max(10, Math.min(clampW - 10, dragStartTextX + dx));
+    textDisplayY = Math.max(10, Math.min(clampH - 10, dragStartTextY + dy));
+
+    textBoxElement.style.left = `${textDisplayX}px`;
+    textBoxElement.style.top = `${textDisplayY}px`;
+    e.preventDefault();
+  }
+
+  function handleTextDragEnd() {
+    if (isTextDragging) {
+      isTextDragging = false;
+      textBoxElement.classList.remove('dragging');
+    }
+  }
+
+  if (textBoxElement) {
+    textBoxElement.addEventListener('mousedown', handleTextDragStart);
+    textBoxElement.addEventListener('touchstart', handleTextDragStart, { passive: false });
+  }
+  if (btnDragText) {
+    btnDragText.addEventListener('mousedown', handleTextDragStart);
+    btnDragText.addEventListener('touchstart', handleTextDragStart, { passive: false });
+  }
+  window.addEventListener('mousemove', handleTextDragMove);
+  window.addEventListener('touchmove', handleTextDragMove, { passive: false });
+  window.addEventListener('mouseup', handleTextDragEnd);
+  window.addEventListener('touchend', handleTextDragEnd);
+
+  // Text Input field
+  if (textStudioInput) {
+    textStudioInput.addEventListener('input', (e) => {
+      textString = e.target.value;
+      updateTextPreview();
+    });
+  }
+
+  if (btnClearTextInput) {
+    btnClearTextInput.addEventListener('click', () => {
+      textString = '';
+      if (textStudioInput) textStudioInput.value = '';
+      updateTextPreview();
+    });
+  }
+
+  if (btnDeleteText) {
+    btnDeleteText.addEventListener('click', (e) => {
+      e.stopPropagation();
+      textString = '';
+      if (textStudioInput) textStudioInput.value = '';
+      updateTextPreview();
+    });
+  }
+
+  // Font Selection Carousel Chips
+  if (fontChipsScroll) {
+    fontChipsScroll.querySelectorAll('.font-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        fontChipsScroll.querySelectorAll('.font-chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        textFont = chip.dataset.font;
+        if (activeFontTag) activeFontTag.textContent = chip.textContent;
+        updateTextPreview();
+      });
+    });
+  }
+
+  // Formatting (Bold, Italic, Underline)
+  if (btnTextBold) {
+    btnTextBold.addEventListener('click', () => {
+      textBold = !textBold;
+      btnTextBold.classList.toggle('active', textBold);
+      updateTextPreview();
+    });
+  }
+
+  if (btnTextItalic) {
+    btnTextItalic.addEventListener('click', () => {
+      textItalic = !textItalic;
+      btnTextItalic.classList.toggle('active', textItalic);
+      updateTextPreview();
+    });
+  }
+
+  if (btnTextUnderline) {
+    btnTextUnderline.addEventListener('click', () => {
+      textUnderline = !textUnderline;
+      btnTextUnderline.classList.toggle('active', textUnderline);
+      updateTextPreview();
+    });
+  }
+
+  // Text Alignment
+  const alignBtns = [btnTextAlignCenter, btnTextAlignLeft, btnTextAlignRight];
+  function setTextAlign(align, activeBtn) {
+    textAlign = align;
+    alignBtns.forEach(btn => { if (btn) btn.classList.remove('active'); });
+    if (activeBtn) activeBtn.classList.add('active');
+    updateTextPreview();
+  }
+  if (btnTextAlignCenter) btnTextAlignCenter.addEventListener('click', () => setTextAlign('center', btnTextAlignCenter));
+  if (btnTextAlignLeft) btnTextAlignLeft.addEventListener('click', () => setTextAlign('left', btnTextAlignLeft));
+  if (btnTextAlignRight) btnTextAlignRight.addEventListener('click', () => setTextAlign('right', btnTextAlignRight));
+
+  // Style / Effect Pills
+  const effectPills = panelText ? panelText.querySelectorAll('.effect-pill') : [];
+  effectPills.forEach(pill => {
+    pill.addEventListener('click', () => {
+      effectPills.forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+      textEffect = pill.dataset.effect || 'none';
+      updateTextPreview();
+    });
+  });
+
+  // Color Swatches & Native Color Picker
+  const colorSwatches = panelText ? panelText.querySelectorAll('.color-swatch') : [];
+  colorSwatches.forEach(swatch => {
+    swatch.addEventListener('click', () => {
+      colorSwatches.forEach(s => s.classList.remove('active'));
+      swatch.classList.add('active');
+      textColor = swatch.dataset.color;
+      if (activeColorTag) activeColorTag.textContent = textColor.toUpperCase();
+      if (textColorPicker) textColorPicker.value = textColor;
+      updateTextPreview();
+    });
+  });
+
+  if (textColorPicker) {
+    textColorPicker.addEventListener('input', (e) => {
+      textColor = e.target.value;
+      colorSwatches.forEach(s => s.classList.remove('active'));
+      if (activeColorTag) activeColorTag.textContent = textColor.toUpperCase();
+      updateTextPreview();
+    });
+  }
+
+  // Size & Opacity Sliders
+  if (textSizeSlider) {
+    textSizeSlider.addEventListener('input', (e) => {
+      textSize = parseInt(e.target.value, 10);
+      if (textSizeVal) textSizeVal.textContent = `${textSize}px`;
+      updateTextPreview();
+    });
+  }
+
+  if (textOpacitySlider) {
+    textOpacitySlider.addEventListener('input', (e) => {
+      const val = parseInt(e.target.value, 10);
+      textOpacity = val / 100;
+      if (textOpacityVal) textOpacityVal.textContent = `${val}%`;
+      updateTextPreview();
+    });
+  }
+
+  // Reset Text Settings
+  function resetTextSettings() {
+    textString = 'Summer Vibes';
+    if (textStudioInput) textStudioInput.value = textString;
+    textFont = 'Inter';
+    textSize = 38;
+    textOpacity = 1.0;
+    textColor = '#ffffff';
+    textBold = false;
+    textItalic = false;
+    textUnderline = false;
+    textAlign = 'center';
+    textEffect = 'none';
+
+    if (activeFontTag) activeFontTag.textContent = 'Inter';
+    if (activeColorTag) activeColorTag.textContent = '#FFFFFF';
+    if (textSizeSlider) textSizeSlider.value = 38;
+    if (textSizeVal) textSizeVal.textContent = '38px';
+    if (textOpacitySlider) textOpacitySlider.value = 100;
+    if (textOpacityVal) textOpacityVal.textContent = '100%';
+    if (btnTextBold) btnTextBold.classList.remove('active');
+    if (btnTextItalic) btnTextItalic.classList.remove('active');
+    if (btnTextUnderline) btnTextUnderline.classList.remove('active');
+    setTextAlign('center', btnTextAlignCenter);
+
+    if (fontChipsScroll) {
+      fontChipsScroll.querySelectorAll('.font-chip').forEach(c => {
+        c.classList.toggle('active', c.dataset.font === 'Inter');
+      });
+    }
+    effectPills.forEach(p => p.classList.toggle('active', p.dataset.effect === 'none'));
+    colorSwatches.forEach(s => s.classList.toggle('active', s.dataset.color === '#ffffff'));
+
+    textDisplayX = Math.round((displayWidth || 400) * 0.5);
+    textDisplayY = Math.round((displayHeight || 400) * 0.5);
+    updateTextPreview();
+  }
+
+  if (btnResetText) {
+    btnResetText.addEventListener('click', resetTextSettings);
+  }
+
+  // High-Resolution Vector Baking onto Canvas
+  function bakeTextToCanvas() {
+    if (!currentWorkingImage || !textString.trim()) {
+      alert('Please enter some text first!');
+      return;
+    }
+
+    saveImageState();
+
+    const w = currentWorkingImage.width;
+    const h = currentWorkingImage.height;
+    const ratio = w / (displayWidth || w);
+
+    const bakedCanvas = document.createElement('canvas');
+    bakedCanvas.width = w;
+    bakedCanvas.height = h;
+    const bCtx = bakedCanvas.getContext('2d');
+
+    // 1. Draw base photo
+    bCtx.drawImage(currentWorkingImage, 0, 0);
+
+    // 2. Compute high-resolution vector text parameters
+    const realFontSize = Math.round(textSize * ratio);
+    const realX = textDisplayX * ratio;
+    const realY = textDisplayY * ratio;
+
+    bCtx.save();
+    bCtx.globalAlpha = textOpacity;
+
+    const fontStylePart = textItalic ? 'italic ' : '';
+    const fontWeightPart = textBold ? '800 ' : '600 ';
+    const cleanFont = textFont.includes(',') ? textFont : `"${textFont}"`;
+    bCtx.font = `${fontStylePart}${fontWeightPart}${realFontSize}px ${cleanFont}, sans-serif`;
+    bCtx.textAlign = textAlign;
+    bCtx.textBaseline = 'middle';
+
+    const textLines = textString.split('\n');
+    const lineHeight = realFontSize * 1.25;
+    const totalBlockHeight = textLines.length * lineHeight;
+    const startY = realY - (totalBlockHeight / 2) + (lineHeight / 2);
+
+    // Badge / Box background effect
+    if (textEffect === 'box') {
+      let maxLineWidth = 0;
+      textLines.forEach(line => {
+        const lw = bCtx.measureText(line).width;
+        if (lw > maxLineWidth) maxLineWidth = lw;
+      });
+      const padX = 22 * ratio;
+      const padY = 14 * ratio;
+      const boxW = maxLineWidth + (padX * 2);
+      const boxH = totalBlockHeight + (padY * 2);
+      let boxX = realX - (boxW / 2);
+      if (textAlign === 'left') boxX = realX - padX;
+      else if (textAlign === 'right') boxX = realX - maxLineWidth - padX;
+      const boxY = realY - (boxH / 2);
+
+      bCtx.fillStyle = 'rgba(0, 0, 0, 0.72)';
+      bCtx.beginPath();
+      if (bCtx.roundRect) {
+        bCtx.roundRect(boxX, boxY, boxW, boxH, 14 * ratio);
+      } else {
+        bCtx.rect(boxX, boxY, boxW, boxH);
+      }
+      bCtx.fill();
+    }
+
+    // Effect styling: Outline or Shadows
+    if (textEffect === 'border') {
+      bCtx.strokeStyle = '#000000';
+      bCtx.lineWidth = Math.max(3, Math.round(3.5 * ratio));
+      bCtx.lineJoin = 'round';
+      textLines.forEach((line, idx) => {
+        const lineY = startY + (idx * lineHeight);
+        bCtx.strokeText(line, realX, lineY);
+      });
+    } else if (textEffect === 'shadow') {
+      bCtx.shadowColor = 'rgba(0, 0, 0, 0.95)';
+      bCtx.shadowBlur = Math.round(14 * ratio);
+      bCtx.shadowOffsetX = 0;
+      bCtx.shadowOffsetY = Math.round(4 * ratio);
+    } else if (textEffect === 'glow') {
+      bCtx.shadowColor = textColor;
+      bCtx.shadowBlur = Math.round(22 * ratio);
+    }
+
+    // Draw text fill
+    bCtx.fillStyle = textColor;
+    textLines.forEach((line, idx) => {
+      const lineY = startY + (idx * lineHeight);
+      bCtx.fillText(line, realX, lineY);
+    });
+
+    // Underline
+    if (textUnderline) {
+      bCtx.strokeStyle = textColor;
+      bCtx.lineWidth = Math.max(2, Math.round(2.5 * ratio));
+      textLines.forEach((line, idx) => {
+        const lineY = startY + (idx * lineHeight);
+        const textMetric = bCtx.measureText(line);
+        let ulX = realX - (textMetric.width / 2);
+        if (textAlign === 'left') ulX = realX;
+        else if (textAlign === 'right') ulX = realX - textMetric.width;
+        bCtx.beginPath();
+        bCtx.moveTo(ulX, lineY + (realFontSize * 0.45));
+        bCtx.lineTo(ulX + textMetric.width, lineY + (realFontSize * 0.45));
+        bCtx.stroke();
+      });
+    }
+
+    bCtx.restore();
+
+    // Commit to current working image
+    currentWorkingImage = bakedCanvas;
+    baseCtx.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
+    baseCtx.drawImage(currentWorkingImage, 0, 0);
+
+    // Invalidate caches
+    cachedSubjectCutout = null;
+    cachedSubjectMask = null;
+    prepareBlurSource();
+    prepareSmoothSource();
+
+    updateUndoState();
+    alert('✓ Text baked into photo at full resolution!');
+  }
+
+  if (btnApplyText) {
+    btnApplyText.addEventListener('click', bakeTextToCanvas);
+  }
+
+  if (btnSaveImageText) {
+    btnSaveImageText.addEventListener('click', exportImage);
   }
 
   // ==========================================
