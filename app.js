@@ -59,6 +59,8 @@
   // Tool 2: Background Blur Controls
   const bgBlurDensityInput = document.getElementById('bgBlurDensity');
   const bgBlurDensityVal = document.getElementById('bgBlurDensityVal');
+  const bgBlurFeatherInput = document.getElementById('bgBlurFeather');
+  const bgBlurFeatherVal = document.getElementById('bgBlurFeatherVal');
   const btnCancelBgBlur = document.getElementById('btnCancelBgBlur');
   const btnApplyBgBlur = document.getElementById('btnApplyBgBlur');
   const btnSaveImageBg = document.getElementById('btnSaveImageBg');
@@ -871,19 +873,59 @@
     if (!currentWorkingImage || !cachedSubjectCutout) return;
 
     const blurPx = parseInt(bgBlurDensityInput.value, 10);
+    const featherPx = bgBlurFeatherInput ? parseInt(bgBlurFeatherInput.value, 10) : 8;
+
+    const w = baseCanvas.width;
+    const h = baseCanvas.height;
 
     // 1. Offscreen blurred background
     const offBg = document.createElement('canvas');
-    offBg.width = baseCanvas.width;
-    offBg.height = baseCanvas.height;
+    offBg.width = w;
+    offBg.height = h;
     const bgCtx = offBg.getContext('2d');
     bgCtx.filter = `blur(${blurPx}px)`;
     bgCtx.drawImage(currentWorkingImage, 0, 0);
 
-    // 2. Draw blurred background, then crisp subject cutout on top
-    baseCtx.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
+    // 2. Extract pure white silhouette mask from cutout
+    // Strips away any dark/black premultiplied RGB border from rembg
+    const maskCanvas = document.createElement('canvas');
+    maskCanvas.width = w;
+    maskCanvas.height = h;
+    const mCtx = maskCanvas.getContext('2d');
+    mCtx.drawImage(cachedSubjectCutout, 0, 0, w, h);
+    mCtx.globalCompositeOperation = 'source-in';
+    mCtx.fillStyle = '#ffffff';
+    mCtx.fillRect(0, 0, w, h);
+    mCtx.globalCompositeOperation = 'source-over';
+
+    // 3. Create the feathered subject using original photo's genuine colors
+    const subjectCanvas = document.createElement('canvas');
+    subjectCanvas.width = w;
+    subjectCanvas.height = h;
+    const sCtx = subjectCanvas.getContext('2d');
+
+    if (featherPx > 0) {
+      // Gaussian blur the pure mask to create smooth feathered boundary
+      sCtx.filter = `blur(${featherPx}px)`;
+      sCtx.drawImage(maskCanvas, 0, 0);
+      sCtx.filter = 'none';
+
+      // Stamp original photo's true colors into the feathered silhouette (zero dark fringe!)
+      sCtx.globalCompositeOperation = 'source-in';
+      sCtx.drawImage(currentWorkingImage, 0, 0);
+      sCtx.globalCompositeOperation = 'source-over';
+    } else {
+      // Crisp boundary without feather
+      sCtx.drawImage(maskCanvas, 0, 0);
+      sCtx.globalCompositeOperation = 'source-in';
+      sCtx.drawImage(currentWorkingImage, 0, 0);
+      sCtx.globalCompositeOperation = 'source-over';
+    }
+
+    // 4. Composite: Blurred background + Soft-feathered natural subject
+    baseCtx.clearRect(0, 0, w, h);
     baseCtx.drawImage(offBg, 0, 0);
-    baseCtx.drawImage(cachedSubjectCutout, 0, 0, baseCanvas.width, baseCanvas.height);
+    baseCtx.drawImage(subjectCanvas, 0, 0);
   }
 
   bgBlurDensityInput.addEventListener('input', (e) => {
@@ -895,6 +937,20 @@
 
     renderLiveBokeh();
   });
+
+  if (bgBlurFeatherInput) {
+    bgBlurFeatherInput.addEventListener('input', (e) => {
+      const val = parseInt(e.target.value, 10);
+      let desc = 'Natural';
+      if (val === 0) desc = 'Sharp';
+      else if (val <= 4) desc = 'Crisp';
+      else if (val <= 12) desc = 'Natural';
+      else desc = 'Silky Soft';
+      bgBlurFeatherVal.textContent = `${val}px (${desc})`;
+
+      renderLiveBokeh();
+    });
+  }
 
   btnApplyBgBlur.addEventListener('click', () => {
     if (!currentWorkingImage) return;
@@ -915,8 +971,12 @@
   btnCancelBgBlur.addEventListener('click', () => {
     if (currentWorkingImage) {
       baseCtx.drawImage(currentWorkingImage, 0, 0);
-      bgBlurDensityInput.value = 20;
-      bgBlurDensityVal.textContent = '20px (Medium Bokeh)';
+      bgBlurDensityInput.value = 16;
+      bgBlurDensityVal.textContent = '16px (Medium Bokeh)';
+      if (bgBlurFeatherInput) {
+        bgBlurFeatherInput.value = 8;
+        bgBlurFeatherVal.textContent = '8px (Natural)';
+      }
     }
   });
 

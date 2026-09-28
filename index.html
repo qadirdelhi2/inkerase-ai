@@ -278,15 +278,27 @@
 
       <!-- Panel 2: Background Blur (Human isolated with Bokeh) -->
       <div class="tool-panel hidden" id="panelBgBlur">
-        <div class="brush-settings">
+        <div class="brush-settings dual-sliders">
           <div class="slider-row">
             <div class="slider-label">
               <span>BG Blur Density</span>
-              <span id="bgBlurDensityVal">20px</span>
+              <span id="bgBlurDensityVal">16px (Medium Bokeh)</span>
             </div>
             <div class="slider-control">
               <span class="dot-indicator small"></span>
-              <input type="range" id="bgBlurDensity" min="2" max="50" value="20" class="custom-range">
+              <input type="range" id="bgBlurDensity" min="2" max="50" value="16" class="custom-range">
+              <span class="dot-indicator large"></span>
+            </div>
+          </div>
+
+          <div class="slider-row">
+            <div class="slider-label">
+              <span>Feather (Edge Softness)</span>
+              <span id="bgBlurFeatherVal">8px (Natural)</span>
+            </div>
+            <div class="slider-control">
+              <span class="dot-indicator small"></span>
+              <input type="range" id="bgBlurFeather" min="0" max="30" value="8" class="custom-range">
               <span class="dot-indicator large"></span>
             </div>
           </div>
@@ -700,6 +712,6 @@
     </footer>
   </div>
 
-  <script src="app.js?v=20260928_clean_v7"></script>
+  <script src="app.js?v=20260928_clean_v8"></script>
 </body>
 </html>
