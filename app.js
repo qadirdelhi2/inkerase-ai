@@ -127,6 +127,8 @@
   const btnResetText = document.getElementById('btnResetText');
   const btnApplyText = document.getElementById('btnApplyText');
   const btnSaveImageText = document.getElementById('btnSaveImageText');
+  const btnCancelText = document.getElementById('btnCancelText');
+  const btnCancelTextBottom = document.getElementById('btnCancelTextBottom');
 
   // Canvas Contexts
   const baseCtx = baseCanvas.getContext('2d', { willReadFrequently: true });
@@ -261,6 +263,7 @@
       maskCanvas.style.pointerEvents = 'none';
       cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
       updateUndoState();
+      previewBrush(eraseBrushRadius);
     } else if (tool === 'bgblur') {
       clearMask();
       cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
@@ -270,11 +273,13 @@
       cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
       prepareBlurSource();
       updateUndoState();
+      previewBrush(manualBrushRadius);
     } else if (tool === 'skinsmooth') {
       clearMask();
       cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
       prepareSmoothSource();
       updateUndoState();
+      previewBrush(skinSmoothRadius);
     } else if (tool === 'adjust') {
       clearMask();
       cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
@@ -286,7 +291,18 @@
       updateTextPreview();
       updateUndoState();
     }
+
+    // Auto-fit canvas to viewport so photo is never covered by bottom panels
+    requestAnimationFrame(() => fitCanvasToCurrentViewport());
   }
+
+  function cancelTextMode() {
+    if (textOverlayLayer) textOverlayLayer.classList.add('hidden');
+    switchStudioTool('erase');
+  }
+
+  if (btnCancelText) btnCancelText.addEventListener('click', cancelTextMode);
+  if (btnCancelTextBottom) btnCancelTextBottom.addEventListener('click', cancelTextMode);
 
   tabErase.addEventListener('click', () => switchStudioTool('erase'));
   tabBgBlur.addEventListener('click', () => switchStudioTool('bgblur'));
@@ -389,19 +405,61 @@
   // ==========================================
   // 3. Zoom, Pan & Auto-Centering Engine
   // ==========================================
+  function getScaleFactor() {
+    const rect = baseCanvas.getBoundingClientRect();
+    return (rect.width > 0 && baseCanvas.width > 0) ? (baseCanvas.width / rect.width) : 1;
+  }
+
+  function fitCanvasToCurrentViewport() {
+    if (!currentWorkingImage || !baseCanvas.width || !baseCanvas.height) return;
+    const vWidth = Math.max(200, canvasViewport.clientWidth);
+    const vHeight = Math.max(160, canvasViewport.clientHeight);
+    const margin = 16;
+    const maxW = Math.max(100, vWidth - margin);
+    const maxH = Math.max(100, vHeight - margin);
+
+    const w = baseCanvas.width;
+    const h = baseCanvas.height;
+    const scaleW = maxW / w;
+    const scaleH = maxH / h;
+    const fitScale = Math.min(scaleW, scaleH);
+
+    displayWidth = Math.round(w * fitScale);
+    displayHeight = Math.round(h * fitScale);
+
+    [baseCanvas, maskCanvas, cursorCanvas].forEach(c => {
+      c.style.width = `${displayWidth}px`;
+      c.style.height = `${displayHeight}px`;
+    });
+
+    if (textOverlayLayer) {
+      textOverlayLayer.style.width = `${displayWidth}px`;
+      textOverlayLayer.style.height = `${displayHeight}px`;
+    }
+
+    scale = 1.0;
+    defaultPanX = Math.round((vWidth - displayWidth) / 2);
+    defaultPanY = Math.round((vHeight - displayHeight) / 2);
+    panX = defaultPanX;
+    panY = defaultPanY;
+
+    updateTransform();
+  }
+
+  // Auto-fit whenever viewport dimensions change (bottom bar expands, keyboard opens, orientation change)
+  const viewportResizeObserver = new ResizeObserver(() => {
+    if (currentWorkingImage && scale <= 1.05) {
+      fitCanvasToCurrentViewport();
+    }
+  });
+  viewportResizeObserver.observe(canvasViewport);
+
   function updateTransform() {
     canvasWrapper.style.transform = `translate3d(${panX}px, ${panY}px, 0px) scale(${scale})`;
   }
 
   function resetTransform() {
-    scale = 1.0;
-    const vWidth = canvasViewport.clientWidth;
-    const vHeight = canvasViewport.clientHeight;
-    defaultPanX = Math.round((vWidth - displayWidth) / 2);
-    defaultPanY = Math.round((vHeight - displayHeight) / 2);
-    panX = defaultPanX;
-    panY = defaultPanY;
-    updateTransform();
+    fitCanvasToCurrentViewport();
   }
 
   btnZoomReset.addEventListener('click', resetTransform);
@@ -480,6 +538,7 @@
         y: (t1.clientY + t2.clientY) / 2
       };
     } else if (e.touches.length === 1 && !isPinching) {
+      if (activeTool !== 'text') e.preventDefault();
       startInteraction(e.touches[0].clientX, e.touches[0].clientY);
     }
   }, { passive: false });
@@ -571,6 +630,11 @@
     lastY = coords.y;
     isDrawing = true;
 
+    let activeRadius = eraseBrushRadius;
+    if (activeTool === 'brushblur') activeRadius = manualBrushRadius;
+    else if (activeTool === 'skinsmooth') activeRadius = skinSmoothRadius;
+    drawCursor(coords.x, coords.y, activeRadius);
+
     if (activeTool === 'erase') {
       saveMaskStroke();
       drawEraseStroke(lastX, lastY, lastX, lastY);
@@ -620,7 +684,9 @@
   function stopInteraction() {
     if (!isDrawing) return;
     isDrawing = false;
-    cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
+    setTimeout(() => {
+      if (!isDrawing) cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
+    }, 450);
 
     if (activeTool === 'brushblur' || activeTool === 'skinsmooth') {
       // Bake manual stroke to working image
@@ -636,42 +702,71 @@
     updateUndoState();
   }
 
+  let brushPreviewTimer = null;
+  function previewBrush(radius) {
+    if (!currentWorkingImage || !baseCanvas.width) return;
+    const centerX = baseCanvas.width / 2;
+    const centerY = baseCanvas.height / 2;
+    drawCursor(centerX, centerY, radius);
+    clearTimeout(brushPreviewTimer);
+    brushPreviewTimer = setTimeout(() => {
+      if (!isDrawing) {
+        cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
+      }
+    }, 1400);
+  }
+
   function drawCursor(x, y, radius) {
     cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
-    if (activeTool === 'bgblur' || activeTool === 'adjust') return;
+    if (activeTool === 'bgblur' || activeTool === 'adjust' || activeTool === 'text') return;
 
-    // Outer boundary
+    const sf = getScaleFactor();
+    const canvasR = radius * sf;
+
+    cursorCtx.save();
+    cursorCtx.shadowColor = 'rgba(0, 0, 0, 0.9)';
+    cursorCtx.shadowBlur = 6 * sf;
+
+    // Outer boundary ring
     cursorCtx.beginPath();
-    cursorCtx.arc(x, y, radius, 0, Math.PI * 2);
+    cursorCtx.arc(x, y, canvasR, 0, Math.PI * 2);
     if (activeTool === 'skinsmooth') {
-      cursorCtx.strokeStyle = 'rgba(251, 191, 36, 0.95)'; // Amber gold glow for skin smoothing
+      cursorCtx.strokeStyle = 'rgba(251, 191, 36, 1.0)';
     } else if (activeTool === 'brushblur') {
-      cursorCtx.strokeStyle = 'rgba(56, 189, 248, 0.95)'; // Cyan for blur
+      cursorCtx.strokeStyle = 'rgba(56, 189, 248, 1.0)';
     } else {
-      cursorCtx.strokeStyle = 'rgba(255, 255, 255, 0.95)'; // White for erase
+      cursorCtx.strokeStyle = 'rgba(255, 255, 255, 1.0)';
     }
-    cursorCtx.lineWidth = Math.max(1.5, radius * 0.05);
+    cursorCtx.lineWidth = Math.max(3 * sf, 3);
     cursorCtx.stroke();
+
+    // Center precision dot
+    cursorCtx.beginPath();
+    cursorCtx.arc(x, y, Math.max(2.5 * sf, 2.5), 0, Math.PI * 2);
+    cursorCtx.fillStyle = cursorCtx.strokeStyle;
+    cursorCtx.fill();
 
     // If blur brush or skin smooth, draw inner dotted circle showing feather core
     if (activeTool === 'brushblur' || activeTool === 'skinsmooth') {
       const featherVal = (activeTool === 'skinsmooth') ? skinSmoothFeather : manualBrushFeather;
-      const innerRadius = Math.max(1, radius * (1.0 - featherVal / 100.0));
+      const innerRadius = Math.max(1, canvasR * (1.0 - featherVal / 100.0));
       cursorCtx.beginPath();
       cursorCtx.arc(x, y, innerRadius, 0, Math.PI * 2);
-      cursorCtx.setLineDash([3, 3]);
-      cursorCtx.strokeStyle = (activeTool === 'skinsmooth') ? 'rgba(251, 191, 36, 0.65)' : 'rgba(56, 189, 248, 0.6)';
-      cursorCtx.lineWidth = 1.2;
+      cursorCtx.setLineDash([4 * sf, 4 * sf]);
+      cursorCtx.strokeStyle = (activeTool === 'skinsmooth') ? 'rgba(251, 191, 36, 0.85)' : 'rgba(56, 189, 248, 0.85)';
+      cursorCtx.lineWidth = Math.max(2 * sf, 2);
       cursorCtx.stroke();
       cursorCtx.setLineDash([]);
     }
+    cursorCtx.restore();
   }
 
   // --- Tool 1: Tattoo Mask Drawing ---
   function drawEraseStroke(x1, y1, x2, y2) {
+    const sf = getScaleFactor();
     maskCtx.strokeStyle = 'rgba(255, 46, 99, 0.85)';
     maskCtx.fillStyle = 'rgba(255, 46, 99, 0.85)';
-    maskCtx.lineWidth = eraseBrushRadius * 2;
+    maskCtx.lineWidth = eraseBrushRadius * sf * 2;
     maskCtx.lineCap = 'round';
     maskCtx.lineJoin = 'round';
 
@@ -684,6 +779,7 @@
   brushSizeInput.addEventListener('input', (e) => {
     eraseBrushRadius = parseInt(e.target.value, 10);
     brushSizeVal.textContent = `${eraseBrushRadius}px`;
+    previewBrush(eraseBrushRadius);
   });
 
   function saveMaskStroke() {
@@ -716,7 +812,8 @@
 
   function drawManualBlurDab(x, y) {
     if (!blurSourceCanvas) return;
-    const R = manualBrushRadius;
+    const sf = getScaleFactor();
+    const R = Math.max(4, manualBrushRadius * sf);
     const D = Math.ceil(R * 2);
     if (D < 2) return;
 
@@ -743,16 +840,18 @@
     dabCtx.fillRect(0, 0, D, D);
     dabCtx.globalCompositeOperation = 'source-over';
 
-    // 3. Composite feathered dab onto base canvas with progressive smooth flow
+    // 3. Composite feathered dab onto base canvas with rich smooth flow
     baseCtx.save();
-    baseCtx.globalAlpha = 0.28;
+    baseCtx.globalAlpha = 0.50;
     baseCtx.drawImage(dabCanvas, x - R, y - R);
     baseCtx.restore();
   }
 
   function drawManualBlurStroke(x1, y1, x2, y2) {
+    const sf = getScaleFactor();
+    const R = Math.max(4, manualBrushRadius * sf);
     const dist = Math.hypot(x2 - x1, y2 - y1);
-    const step = Math.max(2, manualBrushRadius * 0.18);
+    const step = Math.max(2, R * 0.18);
     const steps = Math.ceil(dist / step);
 
     for (let i = 1; i <= steps; i++) {
@@ -766,6 +865,7 @@
   manualBrushSizeInput.addEventListener('input', (e) => {
     manualBrushRadius = parseInt(e.target.value, 10);
     manualBrushSizeVal.textContent = `${manualBrushRadius}px`;
+    previewBrush(manualBrushRadius);
   });
 
   manualBlurDensityInput.addEventListener('input', (e) => {
@@ -775,6 +875,7 @@
     else if (manualBlurDensity >= 30) desc = 'Heavy';
     manualBlurDensityVal.textContent = `${manualBlurDensity}px (${desc})`;
     prepareBlurSource();
+    previewBrush(manualBrushRadius);
   });
 
   if (manualBrushFeatherInput) {
@@ -784,6 +885,7 @@
       if (manualBrushFeather <= 30) desc = 'Crisp';
       else if (manualBrushFeather >= 70) desc = 'Soft';
       manualBrushFeatherVal.textContent = `${manualBrushFeather}% (${desc})`;
+      previewBrush(manualBrushRadius);
     });
   }
 
@@ -829,23 +931,17 @@
     showProgress(true, 'Detecting Subject...', 'AI isolating person for portrait depth-of-field...', 30);
 
     try {
-      // High-speed optimization: Pre-scale image to 1024px to send compact ~250KB JPEG instead of 15MB
+      // High-speed optimization: Pre-scale image to max 1024px for quick ~200KB upload
       const maxDim = 1024;
-      const w = currentWorkingImage.width;
-      const h = currentWorkingImage.height;
-      let imgB64;
-
-      if (Math.max(w, h) > maxDim) {
-        const s = maxDim / Math.max(w, h);
-        const fastCanvas = document.createElement('canvas');
-        fastCanvas.width = Math.round(w * s);
-        fastCanvas.height = Math.round(h * s);
-        const fCtx = fastCanvas.getContext('2d');
-        fCtx.drawImage(currentWorkingImage, 0, 0, fastCanvas.width, fastCanvas.height);
-        imgB64 = fastCanvas.toDataURL('image/jpeg', 0.88);
-      } else {
-        imgB64 = currentWorkingImage.toDataURL('image/jpeg', 0.88);
-      }
+      const w = baseCanvas.width;
+      const h = baseCanvas.height;
+      const s = Math.min(1.0, maxDim / Math.max(w, h));
+      const fastCanvas = document.createElement('canvas');
+      fastCanvas.width = Math.max(1, Math.round(w * s));
+      fastCanvas.height = Math.max(1, Math.round(h * s));
+      const fCtx = fastCanvas.getContext('2d');
+      fCtx.drawImage(baseCanvas, 0, 0, fastCanvas.width, fastCanvas.height);
+      const imgB64 = fastCanvas.toDataURL('image/jpeg', 0.88);
 
       progressFill.style.width = '65%';
 
@@ -1008,7 +1104,8 @@
 
   function drawSkinSmoothDab(x, y) {
     if (!smoothSourceCanvas) return;
-    const R = skinSmoothRadius;
+    const sf = getScaleFactor();
+    const R = Math.max(4, skinSmoothRadius * sf);
     const D = Math.ceil(R * 2);
     if (D < 2) return;
 
@@ -1035,16 +1132,18 @@
     dabCtx.fillRect(0, 0, D, D);
     dabCtx.globalCompositeOperation = 'source-over';
 
-    // 3. Composite feathered dab onto base canvas with progressive smooth flow
+    // 3. Composite feathered dab onto base canvas with responsive smooth flow
     baseCtx.save();
-    baseCtx.globalAlpha = 0.22; // Delicate buildable flow for flawless skin blending
+    baseCtx.globalAlpha = 0.50; // Responsive buildable flow for flawless skin blending
     baseCtx.drawImage(dabCanvas, x - R, y - R);
     baseCtx.restore();
   }
 
   function drawSkinSmoothStroke(x1, y1, x2, y2) {
+    const sf = getScaleFactor();
+    const R = Math.max(4, skinSmoothRadius * sf);
     const dist = Math.hypot(x2 - x1, y2 - y1);
-    const step = Math.max(2, skinSmoothRadius * 0.18);
+    const step = Math.max(2, R * 0.18);
     const steps = Math.ceil(dist / step);
 
     for (let i = 1; i <= steps; i++) {
@@ -1058,6 +1157,7 @@
   skinSmoothBrushSizeInput.addEventListener('input', (e) => {
     skinSmoothRadius = parseInt(e.target.value, 10);
     skinSmoothBrushSizeVal.textContent = `${skinSmoothRadius}px`;
+    previewBrush(skinSmoothRadius);
   });
 
   skinSmoothStrengthInput.addEventListener('input', (e) => {
@@ -1067,6 +1167,7 @@
     else if (skinSmoothStrength >= 20) desc = 'Ultra Smooth';
     skinSmoothStrengthVal.textContent = `${skinSmoothStrength}px (${desc})`;
     prepareSmoothSource();
+    previewBrush(skinSmoothRadius);
   });
 
   skinSmoothFeatherInput.addEventListener('input', (e) => {
@@ -1075,6 +1176,7 @@
     if (skinSmoothFeather <= 40) desc = 'Crisp';
     else if (skinSmoothFeather >= 85) desc = 'Ultra Soft';
     skinSmoothFeatherVal.textContent = `${skinSmoothFeather}% (${desc})`;
+    previewBrush(skinSmoothRadius);
   });
 
   btnUndoSkinSmooth.addEventListener('click', () => {

@@ -566,6 +566,17 @@
 
       <!-- Panel 6: Text Studio (Fonts, Formatting, Colors, Styles/Effects) -->
       <div class="tool-panel hidden" id="panelText">
+        <!-- Panel Header Navigation -->
+        <div class="panel-header-nav">
+          <button id="btnCancelText" class="btn-panel-back" title="Exit Text Studio">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
+              <path d="m15 18-6-6 6-6"/>
+            </svg>
+            <span>← Back to Studio</span>
+          </button>
+          <span class="panel-title-tag">Typography Studio</span>
+        </div>
+
         <!-- Text Input Bar -->
         <div class="text-input-group">
           <input type="text" id="textStudioInput" class="text-studio-input" placeholder="Type text here..." value="Summer Vibes" autocomplete="off">
@@ -679,6 +690,14 @@
 
         <!-- Action Buttons -->
         <div class="toolbar-actions">
+          <button id="btnCancelTextBottom" class="tool-btn" title="Cancel Text Changes">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+            <span>Cancel</span>
+          </button>
+
           <button id="btnResetText" class="tool-btn" title="Reset Text Position & Settings">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
@@ -712,6 +731,6 @@
     </footer>
   </div>
 
-  <script src="app.js?v=20260928_clean_v8"></script>
+  <script src="app.js?v=20260928_clean_v9"></script>
 </body>
 </html>

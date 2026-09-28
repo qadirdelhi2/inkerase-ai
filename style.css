@@ -80,8 +80,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
-  background: rgba(11, 15, 25, 0.90);
+  padding: calc(10px + env(safe-area-inset-top, 34px)) 14px 10px 14px;
+  background: rgba(11, 15, 25, 0.95);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--border-glass);
@@ -199,6 +199,7 @@ body {
 /* Workspace */
 .workspace {
   flex: 1;
+  min-height: 0;
   position: relative;
   overflow: hidden;
   display: flex;
@@ -292,15 +293,20 @@ body {
 .editor-view {
   width: 100%;
   height: 100%;
+  flex: 1;
+  min-height: 0;
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
 }
 
 .canvas-viewport {
   width: 100%;
   height: 100%;
+  flex: 1;
+  min-height: 0;
   position: relative;
   overflow: hidden;
   touch-action: none;
@@ -1804,6 +1810,60 @@ body {
 .color-picker-wheel {
   font-size: 13px;
   line-height: 1;
+}
+
+/* Compact Text Panel & Panel Navigation */
+#panelText {
+  max-height: 44vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 2px;
+  scrollbar-width: thin;
+}
+
+#panelText::-webkit-scrollbar {
+  width: 4px;
+}
+#panelText::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+.panel-header-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px 8px 2px;
+  border-bottom: 1px solid var(--border-glass);
+  margin-bottom: 8px;
+}
+
+.btn-panel-back {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-glass);
+  color: var(--text-main);
+  padding: 6px 12px;
+  border-radius: 12px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.btn-panel-back:active {
+  transform: scale(0.96);
+  background: rgba(244, 63, 94, 0.22);
+  border-color: #f43f5e;
+}
+
+.panel-title-tag {
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #38bdf8;
+  letter-spacing: 0.02em;
 }
 
 .hidden {
