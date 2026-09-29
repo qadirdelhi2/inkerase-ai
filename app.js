@@ -3327,11 +3327,11 @@
 
     // Dynamic Label & Badge
     if (isUpscale) {
-      exportQualityLabel.textContent = `${stepPct}% (${stepPct === 200 ? '2x Ultra HD' : 'Super Resolution'})`;
-      exportQualityBadge.textContent = `${stepPct}% Upscaled`;
+      exportQualityLabel.textContent = `${stepPct}% (Real-ESRGAN + GFPGAN AI)`;
+      exportQualityBadge.textContent = '2x AI Super-Res';
       exportQualityBadge.className = 'stat-badge upscale';
       if (exportResLockGroup) exportResLockGroup.classList.add('disabled');
-      if (exportResLockDesc) exportResLockDesc.textContent = `Dimensions enlarged to ${outW} × ${outH} px`;
+      if (exportResLockDesc) exportResLockDesc.textContent = `Neural super-resolution enlarged to ${outW} × ${outH} px`;
     } else if (stepPct === 100) {
       exportQualityLabel.textContent = '100% (Original HD)';
       exportQualityBadge.textContent = '100% Original';
@@ -3369,13 +3369,81 @@
     btnConfirmExportText.textContent = `Save Photo to Gallery (${sizeStr})`;
   }
 
-  function performFinalExport() {
+  function triggerDownload(url, filename) {
+    const link = document.createElement('a');
+    link.download = filename;
+    link.href = url;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+  async function performFinalExport() {
     if (!currentWorkingImage || !baseCanvas.width) return;
     const idx = parseInt(exportQualitySlider.value, 10);
     const stepPct = EXPORT_STEPS[idx] !== undefined ? EXPORT_STEPS[idx] : 100;
     const isUpscale = stepPct > 100;
     const isLocked = exportResLockToggle && exportResLockToggle.checked && !isUpscale;
 
+    const mimeType = exportFormat === 'png' ? 'image/png' : 'image/jpeg';
+    const ext = exportFormat === 'png' ? 'png' : 'jpg';
+
+    if (isUpscale) {
+      // True Neural Super-Resolution via Real-ESRGAN + GFPGAN
+      try {
+        if (processingOverlay) {
+          processingOverlay.classList.remove('hidden');
+          processStatusTitle.textContent = "AI Super-Resolution Active...";
+          processStatusSub.textContent = "Enhancing textures & facial details with Real-ESRGAN + GFPGAN";
+          if (progressFill) progressFill.style.width = "45%";
+        }
+
+        const baseB64 = baseCanvas.toDataURL('image/jpeg', 0.95);
+        const res = await fetch(getApiEndpoint('/api/upscale'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: baseB64, face_enhance: true })
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.result) {
+            if (progressFill) progressFill.style.width = "100%";
+            const upscaledImg = new Image();
+            await new Promise((resolve) => {
+              upscaledImg.onload = resolve;
+              upscaledImg.src = data.result;
+            });
+
+            const scaleRatio = stepPct / 100.0;
+            const targetW = Math.round(baseCanvas.width * scaleRatio);
+            const targetH = Math.round(baseCanvas.height * scaleRatio);
+
+            const expCanvas = document.createElement('canvas');
+            expCanvas.width = targetW;
+            expCanvas.height = targetH;
+            const expCtx = expCanvas.getContext('2d');
+            expCtx.imageSmoothingEnabled = true;
+            expCtx.imageSmoothingQuality = 'high';
+            expCtx.drawImage(upscaledImg, 0, 0, targetW, targetH);
+
+            const downloadUrl = expCanvas.toDataURL(mimeType, 0.98);
+            triggerDownload(downloadUrl, `inkerase_ai_upscale_${stepPct}pct_${Date.now()}.${ext}`);
+
+            if (processingOverlay) processingOverlay.classList.add('hidden');
+            closeExportModal();
+            if (saveSuccessModal) saveSuccessModal.classList.remove('hidden');
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('[AI Upscale] Neural backend fallback to bicubic:', err);
+      } finally {
+        if (processingOverlay) processingOverlay.classList.add('hidden');
+      }
+    }
+
+    // Standard High-Quality Export (<= 100% or offline fallback)
     let scaleRatio = 1.0;
     let jpegQuality = 0.95;
 
@@ -3403,16 +3471,8 @@
     expCtx.imageSmoothingQuality = 'high';
     expCtx.drawImage(baseCanvas, 0, 0, outW, outH);
 
-    const mimeType = exportFormat === 'png' ? 'image/png' : 'image/jpeg';
-    const ext = exportFormat === 'png' ? 'png' : 'jpg';
-
     const dataUrl = expCanvas.toDataURL(mimeType, jpegQuality);
-    const link = document.createElement('a');
-    link.download = `inkerase_studio_${stepPct}pct_${Date.now()}.${ext}`;
-    link.href = dataUrl;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    triggerDownload(dataUrl, `inkerase_studio_${stepPct}pct_${Date.now()}.${ext}`);
 
     closeExportModal();
     if (saveSuccessModal) saveSuccessModal.classList.remove('hidden');

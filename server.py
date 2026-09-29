@@ -5,6 +5,7 @@ import socket
 import json
 import base64
 import io
+import time
 import numpy as np
 from PIL import Image
 import cv2
@@ -13,6 +14,9 @@ import onnxruntime as ort
 PORT = 8080
 DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 LAMA_MODEL_PATH = os.path.join(DIRECTORY, "lama.onnx")
+REAL_ESRGAN_PATH = os.path.join(DIRECTORY, "realesrgan_x2.onnx")
+GFPGAN_PATH = os.path.join(DIRECTORY, "gfpgan.onnx")
+YUNET_PATH = os.path.join(DIRECTORY, "yunet.onnx")
 
 print("=" * 60)
 print("Loading Studio-Grade LaMa Neural Engine...")
@@ -21,6 +25,9 @@ print("Studio LaMa AI Active & Ready!")
 print("=" * 60)
 
 rmbg_session = None
+esrgan_session = None
+gfpgan_session = None
+yunet_detector = None
 
 def get_rmbg_session():
     global rmbg_session
@@ -31,8 +38,159 @@ def get_rmbg_session():
         print("BRIA-RMBG Engine Active & Ready!")
     return rmbg_session
 
-# Pre-warm RMBG into RAM to eliminate first-click cold start
+def get_esrgan_session():
+    global esrgan_session
+    if esrgan_session is None and os.path.exists(REAL_ESRGAN_PATH):
+        print("Loading Real-ESRGAN 2x Super-Resolution Engine...")
+        esrgan_session = ort.InferenceSession(REAL_ESRGAN_PATH, providers=['CPUExecutionProvider'])
+        print("Real-ESRGAN Engine Active & Ready!")
+    return esrgan_session
+
+def get_gfpgan_session():
+    global gfpgan_session
+    if gfpgan_session is None and os.path.exists(GFPGAN_PATH):
+        print("Loading GFPGAN v1.4 Face Restoration Engine...")
+        gfpgan_session = ort.InferenceSession(GFPGAN_PATH, providers=['CPUExecutionProvider'])
+        print("GFPGAN Face Engine Active & Ready!")
+    return gfpgan_session
+
+def get_yunet_detector():
+    global yunet_detector
+    if yunet_detector is None and os.path.exists(YUNET_PATH):
+        yunet_detector = cv2.FaceDetectorYN.create(YUNET_PATH, '', (320, 320), score_threshold=0.6)
+    return yunet_detector
+
+# Pre-warm RMBG, Real-ESRGAN & GFPGAN into RAM
 get_rmbg_session()
+get_esrgan_session()
+get_gfpgan_session()
+get_yunet_detector()
+
+def upscale_real_esrgan_tiled(img_bgr, tile_size=512, tile_pad=16):
+    """
+    Memory-efficient tiled 2x Super-Resolution with Real-ESRGAN:
+    Processes in overlapping tiles to prevent RAM spikes on mobile photos.
+    """
+    sess = get_esrgan_session()
+    if sess is None:
+        return cv2.resize(img_bgr, (img_bgr.shape[1] * 2, img_bgr.shape[0] * 2), interpolation=cv2.INTER_LANCZOS4)
+
+    h, w, c = img_bgr.shape
+    scale = 2
+    out_h, out_w = h * scale, w * scale
+    out_img = np.zeros((out_h, out_w, c), dtype=np.uint8)
+
+    tiles_x = int(np.ceil(w / tile_size))
+    tiles_y = int(np.ceil(h / tile_size))
+
+    for y in range(tiles_y):
+        for x in range(tiles_x):
+            x1 = x * tile_size
+            x2 = min(x1 + tile_size, w)
+            y1 = y * tile_size
+            y2 = min(y1 + tile_size, h)
+
+            px1 = max(0, x1 - tile_pad)
+            px2 = min(w, x2 + tile_pad)
+            py1 = max(0, y1 - tile_pad)
+            py2 = min(h, y2 + tile_pad)
+
+            tile = img_bgr[py1:py2, px1:px2]
+            tile_rgb = cv2.cvtColor(tile, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+            tile_tensor = np.transpose(tile_rgb, (2, 0, 1))[np.newaxis, ...]
+
+            out_tile = sess.run(None, {'input': tile_tensor})[0][0]
+            out_tile = np.clip(np.transpose(out_tile, (1, 2, 0)) * 255.0, 0, 255).astype(np.uint8)
+            out_tile_bgr = cv2.cvtColor(out_tile, cv2.COLOR_RGB2BGR)
+
+            out_x1 = (x1 - px1) * scale
+            out_x2 = out_x1 + (x2 - x1) * scale
+            out_y1 = (y1 - py1) * scale
+            out_y2 = out_y1 + (y2 - y1) * scale
+
+            out_img[y1*scale:y2*scale, x1*scale:x2*scale] = out_tile_bgr[out_y1:out_y2, out_x1:out_x2]
+
+    return out_img
+
+def restore_faces_gfpgan(img_bgr):
+    """
+    GFPGAN v1.4 Facial Feature & Texture Restoration:
+    Detects faces using neural YuNet, enhances facial features with GFPGAN,
+    and blends smoothly back into the upscaled photo.
+    """
+    sess_gfp = get_gfpgan_session()
+    detector = get_yunet_detector()
+    if sess_gfp is None or detector is None:
+        return img_bgr
+
+    h, w = img_bgr.shape[:2]
+    detector.setInputSize((w, h))
+    try:
+        _, faces = detector.detect(img_bgr)
+    except Exception:
+        faces = None
+
+    if faces is None or len(faces) == 0:
+        return img_bgr
+
+    out = img_bgr.copy()
+    for face in faces:
+        fx, fy, fw, fh = int(face[0]), int(face[1]), int(face[2]), int(face[3])
+        if fw < 20 or fh < 20:
+            continue
+
+        mx, my = int(fw * 0.35), int(fh * 0.35)
+        x1 = max(0, fx - mx)
+        y1 = max(0, fy - my)
+        x2 = min(w, fx + fw + mx)
+        y2 = min(h, fy + fh + my)
+
+        crop = img_bgr[y1:y2, x1:x2]
+        ch, cw = crop.shape[:2]
+        if ch < 32 or cw < 32:
+            continue
+
+        resized = cv2.resize(crop, (512, 512), interpolation=cv2.INTER_LANCZOS4)
+        rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+        tensor = ((rgb - 0.5) / 0.5).transpose(2, 0, 1)[np.newaxis, ...]
+
+        try:
+            gfp_out = sess_gfp.run(None, {'input': tensor})[0][0]
+            gfp_out = np.clip((gfp_out * 0.5 + 0.5) * 255.0, 0, 255).astype(np.uint8)
+            restored_rgb = gfp_out.transpose(1, 2, 0)
+            restored_bgr = cv2.cvtColor(restored_rgb, cv2.COLOR_RGB2BGR)
+
+            restored_crop = cv2.resize(restored_bgr, (cw, ch), interpolation=cv2.INTER_LANCZOS4)
+
+            # Smooth elliptical blend mask
+            mask = np.zeros((ch, cw), dtype=np.float32)
+            cv2.ellipse(mask, (cw // 2, ch // 2), (int(cw * 0.42), int(ch * 0.42)), 0, 0, 360, 1.0, -1)
+            k_w = max(3, int(cw * 0.25) | 1)
+            k_h = max(3, int(ch * 0.25) | 1)
+            mask = cv2.GaussianBlur(mask, (k_w, k_h), 0)[:, :, np.newaxis]
+
+            out[y1:y2, x1:x2] = (restored_crop * mask + crop * (1.0 - mask)).astype(np.uint8)
+        except Exception as err:
+            print("[GFPGAN] Warning on face restoration crop:", err)
+
+    return out
+
+def full_ai_upscale_pipeline(img_bgr, face_enhance=True):
+    """
+    Combined Real-ESRGAN 2x Super-Resolution + GFPGAN Face Restoration Pipeline
+    """
+    print(f"[AI Upscale] Input image size: {img_bgr.shape[1]}x{img_bgr.shape[0]}")
+    t0 = time.time()
+    upscaled = upscale_real_esrgan_tiled(img_bgr, tile_size=512, tile_pad=16)
+    print(f"[AI Upscale] Real-ESRGAN complete: {upscaled.shape[1]}x{upscaled.shape[0]} in {time.time() - t0:.2f}s")
+
+    if face_enhance:
+        t1 = time.time()
+        upscaled = restore_faces_gfpgan(upscaled)
+        print(f"[AI Upscale] GFPGAN complete in {time.time() - t1:.2f}s")
+
+    return upscaled
+
 
 def apply_portrait_blur(orig_np, mask_np, blur_density=25):
     """
@@ -293,6 +451,41 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
             self.wfile.write(resp)
+            return
+
+        elif self.path == '/api/upscale':
+            try:
+                # Real-ESRGAN 2x + GFPGAN Face Enhancement
+                content_length = int(self.headers.get('Content-Length', 0))
+                body = self.rfile.read(content_length)
+                data = json.loads(body.decode('utf-8'))
+
+                img_b64 = data['image'].split(',')[-1]
+                face_enhance = bool(data.get('face_enhance', True))
+
+                pil_img = Image.open(io.BytesIO(base64.b64decode(img_b64))).convert("RGB")
+                img_bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+
+                upscaled_bgr = full_ai_upscale_pipeline(img_bgr, face_enhance=face_enhance)
+                result_img = Image.fromarray(cv2.cvtColor(upscaled_bgr, cv2.COLOR_BGR2RGB))
+
+                buf = io.BytesIO()
+                result_img.save(buf, format='JPEG', quality=98)
+                res_b64 = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode('utf-8')
+
+                resp = json.dumps({'success': True, 'result': res_b64}).encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(resp)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                err_resp = json.dumps({'success': False, 'error': str(e)}).encode('utf-8')
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(err_resp)
             return
 
         self.send_error(404)
