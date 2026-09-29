@@ -36,21 +36,28 @@ get_rmbg_session()
 
 def apply_portrait_blur(orig_np, mask_np, blur_density=25):
     """
-    Studio Portrait Depth-of-Field Blur:
+    Studio Portrait Depth-of-Field Blur with Zero Halo Bleed:
     orig_np: (H, W, 3) RGB uint8
     mask_np: (H, W) uint8 where 255=foreground subject, 0=background
     blur_density: 1 to 50
     """
-    # Feather mask slightly for smooth hair and body contours
-    feathered_mask = cv2.GaussianBlur(mask_np, (7, 7), 2.0)
-    alpha = (feathered_mask.astype(np.float32) / 255.0)[:, :, np.newaxis]
+    # 1. Subtle subpixel anti-aliased edge matting (prevents blurry halos around subject)
+    feathered_mask = cv2.GaussianBlur(mask_np.astype(np.float32), (5, 5), 1.2) / 255.0
+    alpha = np.clip(feathered_mask, 0.0, 1.0)[:, :, np.newaxis]
 
     ksize = int(blur_density * 2 + 1)
     if ksize % 2 == 0:
         ksize += 1
     ksize = max(3, min(101, ksize))
 
-    blurred_bg = cv2.GaussianBlur(orig_np, (ksize, ksize), 0)
+    # 2. Push background colors into subject area before blurring to eliminate subject halo bleeding
+    dilated_subj = cv2.dilate((mask_np > 128).astype(np.uint8) * 255, np.ones((11, 11), np.uint8))
+    try:
+        bg_plate = cv2.inpaint(orig_np, dilated_subj, 5, cv2.INPAINT_TELEA)
+    except Exception:
+        bg_plate = orig_np
+
+    blurred_bg = cv2.GaussianBlur(bg_plate, (ksize, ksize), 0)
     composite = (orig_np * alpha + blurred_bg * (1.0 - alpha)).astype(np.uint8)
     return composite
 

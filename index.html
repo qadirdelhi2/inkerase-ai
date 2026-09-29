@@ -105,11 +105,18 @@
             <!-- Native Draggable Text Layer -->
             <div id="textOverlayLayer" class="text-overlay-layer hidden">
               <div id="textBoxElement" class="text-box-element">
-                <span id="textContentDisplay" class="text-content-display">Your Text</span>
+                <span id="textContentDisplay" class="text-content-display">MayaTheDiva.com</span>
                 <div class="text-ctrl-btn text-btn-del" id="btnDeleteText" title="Delete Text">✕</div>
                 <div class="text-ctrl-btn text-btn-drag" id="btnDragText" title="Drag to Move">✥</div>
               </div>
             </div>
+          </div>
+
+          <!-- Floating Optical Magnifier Loupe (PiP Zoom for Brush Accuracy) -->
+          <div id="pipMagnifier" class="pip-magnifier hidden">
+            <canvas id="pipCanvas" width="130" height="130"></canvas>
+            <div class="pip-crosshair"></div>
+            <div class="pip-label">2.5x ZOOM</div>
           </div>
         </div>
 
@@ -296,11 +303,11 @@
           <div class="slider-row">
             <div class="slider-label">
               <span>Feather (Edge Softness)</span>
-              <span id="bgBlurFeatherVal">8px (Natural)</span>
+              <span id="bgBlurFeatherVal">2px (Crisp)</span>
             </div>
             <div class="slider-control">
               <span class="dot-indicator small"></span>
-              <input type="range" id="bgBlurFeather" min="0" max="30" value="8" class="custom-range">
+              <input type="range" id="bgBlurFeather" min="0" max="15" value="2" class="custom-range">
               <span class="dot-indicator large"></span>
             </div>
           </div>
@@ -581,7 +588,7 @@
 
         <!-- Text Input Bar -->
         <div class="text-input-group">
-          <input type="text" id="textStudioInput" class="text-studio-input" placeholder="Type text here..." value="Summer Vibes" autocomplete="off">
+          <input type="text" id="textStudioInput" class="text-studio-input" placeholder="Type text here..." value="MayaTheDiva.com" autocomplete="off">
           <button id="btnClearTextInput" class="btn-clear-text" title="Clear Text">✕</button>
         </div>
 
@@ -811,11 +818,11 @@
           <div class="slider-row">
             <div class="slider-label">
               <span>Font Size</span>
-              <span id="textSizeVal">38px</span>
+              <span id="textSizeVal">8px</span>
             </div>
             <div class="slider-control">
               <span class="dot-indicator small"></span>
-              <input type="range" id="textSizeSlider" min="14" max="140" value="38" class="custom-range">
+              <input type="range" id="textSizeSlider" min="4" max="40" value="8" class="custom-range">
               <span class="dot-indicator large"></span>
             </div>
           </div>
@@ -823,11 +830,11 @@
           <div class="slider-row">
             <div class="slider-label">
               <span>Text Fill Opacity</span>
-              <span id="textOpacityVal">100%</span>
+              <span id="textOpacityVal">50%</span>
             </div>
             <div class="slider-control">
               <span class="dot-indicator small"></span>
-              <input type="range" id="textOpacitySlider" min="10" max="100" value="100" class="custom-range">
+              <input type="range" id="textOpacitySlider" min="10" max="100" value="50" class="custom-range">
               <span class="dot-indicator large"></span>
             </div>
           </div>

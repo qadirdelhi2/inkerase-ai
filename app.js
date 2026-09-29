@@ -167,6 +167,9 @@
   const baseCtx = baseCanvas.getContext('2d', { willReadFrequently: true });
   const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
   const cursorCtx = cursorCanvas.getContext('2d');
+  const pipMagnifier = document.getElementById('pipMagnifier');
+  const pipCanvas = document.getElementById('pipCanvas');
+  const pipCtx = pipCanvas ? pipCanvas.getContext('2d', { willReadFrequently: true }) : null;
 
   // State Management
   let activeTool = 'erase';         // 'erase' | 'bgblur' | 'brushblur' | 'skinsmooth' | 'adjust' | 'text'
@@ -201,10 +204,10 @@
   let adjustWarmth = 0;
 
   // Tool 6: Text Studio State
-  let textString = 'Summer Vibes';
+  let textString = 'MayaTheDiva.com';
   let textFont = 'Inter';
-  let textSize = 38;
-  let textOpacity = 1.0;
+  let textSize = 8;
+  let textOpacity = 0.5;
   let textColor = '#ffffff';
   let textBold = false;
   let textItalic = false;
@@ -604,25 +607,21 @@
 
   // Multi-Touch Focal-Point Pinch Zoom + 2-Finger Pan + Single-Finger Drawing
   let lastPinchEndTime = 0;
-  let pendingTouchStart = null;
-  let pendingTouchTimer = null;
   let currentStrokePoints = [];
 
   canvasViewport.addEventListener('touchstart', (e) => {
     if (e.touches.length >= 2) {
-      // 2 fingers detected: IMMEDIATELY cancel any pending or active drawing!
-      if (pendingTouchTimer) {
-        clearTimeout(pendingTouchTimer);
-        pendingTouchTimer = null;
-      }
-      pendingTouchStart = null;
+      if (pipMagnifier) pipMagnifier.classList.add('hidden');
 
       if (isDrawing) {
-        // If an accidental stroke dot was placed by finger 1 before finger 2 landed, revert it immediately!
+        // If an accidental stroke dot was placed before second finger landed, revert immediately!
         if (activeTool === 'erase' && maskStrokeHistory.length > 0) {
           const prevState = maskStrokeHistory.pop();
           maskCtx.putImageData(prevState, 0, 0);
           updateUndoState();
+        } else if ((activeTool === 'brushblur' || activeTool === 'skinsmooth') && imageHistory.length > 0) {
+          const prevState = imageHistory.pop();
+          baseCtx.putImageData(prevState, 0, 0);
         }
         isDrawing = false;
         currentStrokePoints = [];
@@ -646,8 +645,8 @@
     }
 
     if (e.touches.length === 1) {
-      // If we just finished a 2-finger gesture within the last 400ms, ignore trailing release touches
-      if (Date.now() - lastPinchEndTime < 400 || isPinching) {
+      // If we just finished a 2-finger gesture within the last 350ms, ignore trailing release touches
+      if (Date.now() - lastPinchEndTime < 350 || isPinching) {
         e.preventDefault();
         return;
       }
@@ -656,33 +655,23 @@
 
       const clientX = e.touches[0].clientX;
       const clientY = e.touches[0].clientY;
-      pendingTouchStart = { clientX, clientY };
-
-      if (pendingTouchTimer) clearTimeout(pendingTouchTimer);
-      // Short 40ms buffer to check if a second finger is landing for pinch zoom
-      pendingTouchTimer = setTimeout(() => {
-        if (pendingTouchStart && !isPinching && Date.now() - lastPinchEndTime >= 400) {
-          startInteraction(pendingTouchStart.clientX, pendingTouchStart.clientY);
-          pendingTouchStart = null;
-        }
-      }, 40);
+      startInteraction(clientX, clientY);
     }
   }, { passive: false });
 
   canvasViewport.addEventListener('touchmove', (e) => {
     if (e.touches.length >= 2 || isPinching) {
       e.preventDefault();
-      if (pendingTouchTimer) {
-        clearTimeout(pendingTouchTimer);
-        pendingTouchTimer = null;
-      }
-      pendingTouchStart = null;
+      if (pipMagnifier) pipMagnifier.classList.add('hidden');
 
       if (isDrawing) {
         if (activeTool === 'erase' && maskStrokeHistory.length > 0) {
           const prevState = maskStrokeHistory.pop();
           maskCtx.putImageData(prevState, 0, 0);
           updateUndoState();
+        } else if ((activeTool === 'brushblur' || activeTool === 'skinsmooth') && imageHistory.length > 0) {
+          const prevState = imageHistory.pop();
+          baseCtx.putImageData(prevState, 0, 0);
         }
         isDrawing = false;
         currentStrokePoints = [];
@@ -713,17 +702,10 @@
       return;
     }
 
-    if (e.touches.length === 1 && !isPinching && Date.now() - lastPinchEndTime >= 400) {
+    if (e.touches.length === 1 && !isPinching && Date.now() - lastPinchEndTime >= 350) {
       e.preventDefault();
       const clientX = e.touches[0].clientX;
       const clientY = e.touches[0].clientY;
-
-      if (pendingTouchStart) {
-        clearTimeout(pendingTouchTimer);
-        pendingTouchTimer = null;
-        startInteraction(pendingTouchStart.clientX, pendingTouchStart.clientY);
-        pendingTouchStart = null;
-      }
 
       if (isDrawing) {
         moveInteraction(clientX, clientY);
@@ -732,12 +714,6 @@
   }, { passive: false });
 
   canvasViewport.addEventListener('touchend', (e) => {
-    if (pendingTouchTimer) {
-      clearTimeout(pendingTouchTimer);
-      pendingTouchTimer = null;
-    }
-    pendingTouchStart = null;
-
     if (isPinching) {
       if (e.touches.length === 0) {
         isPinching = false;
@@ -786,6 +762,77 @@
   // ==========================================
   // 4. Drawing & Interaction Handlers
   // ==========================================
+  function updatePipMagnifier(clientX, clientY, canvasX, canvasY, radius) {
+    if (!pipMagnifier || !pipCanvas || !pipCtx) return;
+    if (!isDrawing || !currentWorkingImage) {
+      pipMagnifier.classList.add('hidden');
+      return;
+    }
+    if (activeTool !== 'erase' && activeTool !== 'brushblur' && activeTool !== 'skinsmooth') {
+      pipMagnifier.classList.add('hidden');
+      return;
+    }
+
+    const vpRect = canvasViewport.getBoundingClientRect();
+    const touchX = clientX - vpRect.left;
+    const touchY = clientY - vpRect.top;
+
+    // Position circular loupe ~80px offset above touch point
+    let loupeX = touchX;
+    let loupeY = touchY - 80;
+
+    // If touching near the top of viewport, flip below finger so it stays on screen
+    if (loupeY < 85) {
+      loupeY = touchY + 155;
+    }
+
+    // Clamp horizontally to stay inside viewport
+    const halfSize = 70;
+    loupeX = Math.max(halfSize, Math.min(vpRect.width - halfSize, loupeX));
+
+    pipMagnifier.style.left = `${loupeX}px`;
+    pipMagnifier.style.top = `${loupeY}px`;
+    pipMagnifier.classList.remove('hidden');
+
+    // 2.5x Optical Zoom rendering
+    const pipW = pipCanvas.width;
+    const pipH = pipCanvas.height;
+    const zoomFactor = 2.5;
+    const srcSize = pipW / zoomFactor;
+
+    pipCtx.clearRect(0, 0, pipW, pipH);
+    pipCtx.fillStyle = '#111215';
+    pipCtx.fillRect(0, 0, pipW, pipH);
+
+    const sx = canvasX - srcSize / 2;
+    const sy = canvasY - srcSize / 2;
+
+    // Draw magnified base photo
+    pipCtx.drawImage(baseCanvas, sx, sy, srcSize, srcSize, 0, 0, pipW, pipH);
+
+    // If tattoo erase tool, overlay mask canvas magnified
+    if (activeTool === 'erase') {
+      pipCtx.drawImage(maskCanvas, sx, sy, srcSize, srcSize, 0, 0, pipW, pipH);
+    }
+
+    // Draw magnified brush ring at center
+    const sf = getScaleFactor();
+    const reticleRadius = radius * sf * zoomFactor;
+    pipCtx.save();
+    pipCtx.beginPath();
+    pipCtx.arc(pipW / 2, pipH / 2, Math.max(2.5, reticleRadius), 0, Math.PI * 2);
+    if (activeTool === 'skinsmooth') {
+      pipCtx.strokeStyle = 'rgba(251, 191, 36, 0.95)';
+    } else if (activeTool === 'brushblur') {
+      pipCtx.strokeStyle = 'rgba(56, 189, 248, 0.95)';
+    } else {
+      pipCtx.strokeStyle = 'rgba(255, 46, 99, 0.95)';
+    }
+    pipCtx.lineWidth = 2.0;
+    pipCtx.stroke();
+    pipCtx.restore();
+  }
+
   function startInteraction(clientX, clientY) {
     if (!currentWorkingImage || isComparing) return;
     if (activeTool === 'bgblur' || activeTool === 'adjust' || activeTool === 'text') return;
@@ -813,11 +860,14 @@
       prepareSmoothSource();
       drawSkinSmoothDab(lastX, lastY);
     }
+
+    updatePipMagnifier(clientX, clientY, coords.x, coords.y, activeRadius);
   }
 
   function moveInteraction(clientX, clientY) {
     if (activeTool === 'bgblur' || activeTool === 'adjust' || activeTool === 'text') {
       cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
+      if (pipMagnifier) pipMagnifier.classList.add('hidden');
       return;
     }
 
@@ -832,21 +882,8 @@
     if (!isDrawing || !currentWorkingImage || isComparing) return;
 
     if (activeTool === 'erase') {
-      currentStrokePoints.push(coords);
-      if (currentStrokePoints.length >= 3) {
-        const p0 = currentStrokePoints[currentStrokePoints.length - 3];
-        const p1 = currentStrokePoints[currentStrokePoints.length - 2];
-        const p2 = currentStrokePoints[currentStrokePoints.length - 1];
-
-        const mid1X = (p0.x + p1.x) / 2;
-        const mid1Y = (p0.y + p1.y) / 2;
-        const mid2X = (p1.x + p2.x) / 2;
-        const mid2Y = (p1.y + p2.y) / 2;
-
-        drawEraseCurve(mid1X, mid1Y, p1.x, p1.y, mid2X, mid2Y);
-      } else if (currentStrokePoints.length === 2) {
-        drawEraseStroke(currentStrokePoints[0].x, currentStrokePoints[0].y, currentStrokePoints[1].x, currentStrokePoints[1].y);
-      }
+      // 100% Instantaneous touch tracking with zero lag and no trailing tail
+      drawEraseStroke(lastX, lastY, coords.x, coords.y);
       lastX = coords.x;
       lastY = coords.y;
     } else if (activeTool === 'brushblur') {
@@ -858,9 +895,12 @@
       lastX = coords.x;
       lastY = coords.y;
     }
+
+    updatePipMagnifier(clientX, clientY, coords.x, coords.y, activeRadius);
   }
 
   function stopInteraction() {
+    if (pipMagnifier) pipMagnifier.classList.add('hidden');
     if (!isDrawing) return;
     isDrawing = false;
     currentStrokePoints = [];
@@ -1414,28 +1454,28 @@
     mCtx.fillRect(0, 0, w, h);
     mCtx.globalCompositeOperation = 'source-over';
 
-    // 3. Create the feathered subject using original photo's genuine colors
+    // 3. Create the precise feathered subject using original photo's genuine colors
     const subjectCanvas = document.createElement('canvas');
     subjectCanvas.width = w;
     subjectCanvas.height = h;
     const sCtx = subjectCanvas.getContext('2d');
 
     if (featherPx > 0) {
-      // Gaussian blur the pure mask to create smooth feathered boundary
-      sCtx.filter = `blur(${featherPx}px)`;
+      // Sub-pixel smooth anti-aliased edge (clean edge without fuzzy halo)
+      sCtx.filter = `blur(${Math.max(1, featherPx * 0.75)}px)`;
       sCtx.drawImage(maskCanvas, 0, 0);
       sCtx.filter = 'none';
 
-      // Stamp original photo's true colors into the feathered silhouette (zero dark fringe!)
+      // Stamp original photo's true colors
       sCtx.globalCompositeOperation = 'source-in';
       sCtx.drawImage(currentWorkingImage, 0, 0);
       sCtx.globalCompositeOperation = 'source-over';
+
+      // Overlay cached cutout so the subject interior remains 100% solid and crisp
+      sCtx.drawImage(cachedSubjectCutout, 0, 0, w, h);
     } else {
-      // Crisp boundary without feather
-      sCtx.drawImage(maskCanvas, 0, 0);
-      sCtx.globalCompositeOperation = 'source-in';
-      sCtx.drawImage(currentWorkingImage, 0, 0);
-      sCtx.globalCompositeOperation = 'source-over';
+      // Razor sharp boundary
+      sCtx.drawImage(cachedSubjectCutout, 0, 0, w, h);
     }
 
     // 4. Composite: Blurred background + Soft-feathered natural subject
@@ -1457,11 +1497,11 @@
   if (bgBlurFeatherInput) {
     bgBlurFeatherInput.addEventListener('input', (e) => {
       const val = parseInt(e.target.value, 10);
-      let desc = 'Natural';
-      if (val === 0) desc = 'Sharp';
-      else if (val <= 4) desc = 'Crisp';
-      else if (val <= 12) desc = 'Natural';
-      else desc = 'Silky Soft';
+      let desc = 'Crisp & Precise';
+      if (val === 0) desc = 'Razor Sharp';
+      else if (val <= 2) desc = 'Crisp & Precise';
+      else if (val <= 6) desc = 'Soft Portrait';
+      else desc = 'Silky';
       bgBlurFeatherVal.textContent = `${val}px (${desc})`;
 
       renderLiveBokeh();
@@ -1495,8 +1535,8 @@
       bgBlurDensityInput.value = 16;
       bgBlurDensityVal.textContent = '16px (Medium Bokeh)';
       if (bgBlurFeatherInput) {
-        bgBlurFeatherInput.value = 8;
-        bgBlurFeatherVal.textContent = '8px (Natural)';
+        bgBlurFeatherInput.value = 2;
+        bgBlurFeatherVal.textContent = '2px (Crisp)';
       }
     }
   });
@@ -1506,12 +1546,83 @@
   // ==========================================
   function prepareSmoothSource() {
     if (!currentWorkingImage) return;
+    const w = baseCanvas.width;
+    const h = baseCanvas.height;
+
     smoothSourceCanvas = document.createElement('canvas');
-    smoothSourceCanvas.width = baseCanvas.width;
-    smoothSourceCanvas.height = baseCanvas.height;
+    smoothSourceCanvas.width = w;
+    smoothSourceCanvas.height = h;
     const sCtx = smoothSourceCanvas.getContext('2d');
-    sCtx.filter = `blur(${skinSmoothStrength}px)`;
-    sCtx.drawImage(currentWorkingImage, 0, 0);
+
+    // Step 1: Base Gaussian blur to even out skin blotchiness, redness, wrinkles & cellulite
+    const lfCanvas = document.createElement('canvas');
+    lfCanvas.width = w;
+    lfCanvas.height = h;
+    const lfCtx = lfCanvas.getContext('2d');
+    const blurRadius = Math.max(2, Math.round(skinSmoothStrength * 0.85));
+    lfCtx.filter = `blur(${blurRadius}px)`;
+    lfCtx.drawImage(currentWorkingImage, 0, 0);
+
+    // Step 2: Realistic Bilateral Skin Synthesis (Preserves natural pores & grain, keeps facial contours crisp)
+    try {
+      const origCanvas = document.createElement('canvas');
+      origCanvas.width = w;
+      origCanvas.height = h;
+      const origCtx = origCanvas.getContext('2d');
+      origCtx.drawImage(currentWorkingImage, 0, 0);
+
+      const origImg = origCtx.getImageData(0, 0, w, h);
+      const lfImg = lfCtx.getImageData(0, 0, w, h);
+      const outImg = sCtx.createImageData(w, h);
+
+      const origData = origImg.data;
+      const lfData = lfImg.data;
+      const outData = outImg.data;
+      const totalLen = w * h * 4;
+
+      const edgeThreshold = 30.0;
+
+      for (let i = 0; i < totalLen; i += 4) {
+        const or = origData[i];
+        const og = origData[i + 1];
+        const ob = origData[i + 2];
+
+        const lr = lfData[i];
+        const lg = lfData[i + 1];
+        const lb = lfData[i + 2];
+
+        const dr = or - lr;
+        const dg = og - lg;
+        const db = ob - lb;
+        const maxDiff = Math.max(Math.abs(dr), Math.abs(dg), Math.abs(db));
+
+        if (maxDiff > edgeThreshold) {
+          // Structural edge (eyes, lips, nostrils, hair strands, jewelry, clothes)
+          // Keep 100% original sharpness so edges NEVER look blurry
+          const t = Math.min(1.0, (maxDiff - edgeThreshold) / 16.0);
+          const poreRatio = 0.42;
+          const sr = lr + dr * poreRatio;
+          const sg = lg + dg * poreRatio;
+          const sb = lb + db * poreRatio;
+
+          outData[i] = Math.round(sr * (1.0 - t) + or * t);
+          outData[i + 1] = Math.round(sg * (1.0 - t) + og * t);
+          outData[i + 2] = Math.round(sb * (1.0 - t) + ob * t);
+        } else {
+          // Smooth skin surface: evens out tone/blemishes while preserving 40% of micro pores and texture!
+          const poreRatio = 0.40;
+          outData[i] = Math.max(0, Math.min(255, Math.round(lr + dr * poreRatio)));
+          outData[i + 1] = Math.max(0, Math.min(255, Math.round(lg + dg * poreRatio)));
+          outData[i + 2] = Math.max(0, Math.min(255, Math.round(lb + db * poreRatio)));
+        }
+        outData[i + 3] = origData[i + 3];
+      }
+
+      sCtx.putImageData(outImg, 0, 0);
+    } catch (e) {
+      // Fallback if security/memory issue
+      sCtx.drawImage(lfCanvas, 0, 0);
+    }
   }
 
   function drawSkinSmoothDab(x, y) {
@@ -2131,11 +2242,11 @@
 
   // Reset Text Settings
   function resetTextSettings() {
-    textString = 'Summer Vibes';
+    textString = 'MayaTheDiva.com';
     if (textStudioInput) textStudioInput.value = textString;
     textFont = 'Inter';
-    textSize = 38;
-    textOpacity = 1.0;
+    textSize = 8;
+    textOpacity = 0.5;
     textColor = '#ffffff';
     textBold = false;
     textItalic = false;
@@ -2163,10 +2274,10 @@
     if (activeGlowTag) activeGlowTag.textContent = '#38BDF8';
     if (activeBoxTag) activeBoxTag.textContent = '#000000';
 
-    if (textSizeSlider) textSizeSlider.value = 38;
-    if (textSizeVal) textSizeVal.textContent = '38px';
-    if (textOpacitySlider) textOpacitySlider.value = 100;
-    if (textOpacityVal) textOpacityVal.textContent = '100%';
+    if (textSizeSlider) textSizeSlider.value = 8;
+    if (textSizeVal) textSizeVal.textContent = '8px';
+    if (textOpacitySlider) textOpacitySlider.value = 50;
+    if (textOpacityVal) textOpacityVal.textContent = '50%';
 
     if (outlineWidthSlider) outlineWidthSlider.value = 4;
     if (outlineWidthVal) outlineWidthVal.textContent = '4px';
