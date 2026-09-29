@@ -11,6 +11,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Caveat:wght@600&family=Inter:wght@400;600;700;800;900&family=Lobster&family=Montserrat:wght@600;700;800;900&family=Oswald:wght@600;700&family=Playfair+Display:ital,wght@0,600;0,800;1,600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css?v=20260928_clean_v7">
+  <!-- On-Device Neural Human Isolation Engine -->
+  <script src="mediapipe/selfie_segmentation.js"></script>
 </head>
 <body>
   <div class="app-container">
@@ -225,11 +227,11 @@
           <div class="slider-row">
             <div class="slider-label">
               <span>Brush Size</span>
-              <span id="brushSizeVal">35px</span>
+              <span id="brushSizeVal">12px</span>
             </div>
             <div class="slider-control">
               <span class="dot-indicator small"></span>
-              <input type="range" id="brushSize" min="6" max="140" value="35" class="custom-range">
+              <input type="range" id="brushSize" min="2" max="30" value="12" class="custom-range">
               <span class="dot-indicator large"></span>
             </div>
           </div>
@@ -593,14 +595,22 @@
             <button class="font-chip active" data-font="Inter" style="font-family: 'Inter', sans-serif;">Inter</button>
             <button class="font-chip" data-font="'Playfair Display', serif" style="font-family: 'Playfair Display', serif;">Playfair</button>
             <button class="font-chip" data-font="'Montserrat', sans-serif" style="font-family: 'Montserrat', sans-serif;">Montserrat</button>
-            <button class="font-chip" data-font="'Bebas Neue', sans-serif" style="font-family: 'Bebas Neue', sans-serif;">Bebas</button>
-            <button class="font-chip" data-font="'Caveat', cursive" style="font-family: 'Caveat', cursive;">Caveat</button>
-            <button class="font-chip" data-font="'Lobster', cursive" style="font-family: 'Lobster', cursive;">Lobster</button>
+            <button class="font-chip" data-font="'Poppins', sans-serif" style="font-family: 'Poppins', sans-serif;">Poppins</button>
             <button class="font-chip" data-font="'Oswald', sans-serif" style="font-family: 'Oswald', sans-serif;">Oswald</button>
+            <button class="font-chip" data-font="'Bebas Neue', sans-serif" style="font-family: 'Bebas Neue', sans-serif;">Bebas</button>
+            <button class="font-chip" data-font="'Anton', sans-serif" style="font-family: 'Anton', sans-serif;">Anton</button>
+            <button class="font-chip" data-font="'Caveat', cursive" style="font-family: 'Caveat', cursive;">Caveat</button>
+            <button class="font-chip" data-font="'Pacifico', cursive" style="font-family: 'Pacifico', cursive;">Pacifico</button>
+            <button class="font-chip" data-font="'Dancing Script', cursive" style="font-family: 'Dancing Script', cursive;">Dancing</button>
+            <button class="font-chip" data-font="'Great Vibes', cursive" style="font-family: 'Great Vibes', cursive;">Great Vibes</button>
+            <button class="font-chip" data-font="'Lobster', cursive" style="font-family: 'Lobster', cursive;">Lobster</button>
+            <button class="font-chip" data-font="'Cinzel', serif" style="font-family: 'Cinzel', serif;">Cinzel</button>
+            <button class="font-chip" data-font="'Righteous', cursive" style="font-family: 'Righteous', cursive;">Righteous</button>
+            <button class="font-chip" data-font="'Bungee', cursive" style="font-family: 'Bungee', cursive;">Bungee</button>
+            <button class="font-chip" data-font="'Monoton', cursive" style="font-family: 'Monoton', cursive;">Monoton</button>
             <button class="font-chip" data-font="'Permanent Marker', cursive" style="font-family: 'Permanent Marker', cursive;">Marker</button>
             <button class="font-chip" data-font="'Luckiest Guy', cursive" style="font-family: 'Luckiest Guy', cursive;">Comic</button>
             <button class="font-chip" data-font="'Amatic SC', cursive" style="font-family: 'Amatic SC', cursive;">Amatic</button>
-            <button class="font-chip" data-font="'Plus Jakarta Sans', sans-serif" style="font-family: 'Plus Jakarta Sans', sans-serif;">Jakarta</button>
           </div>
         </div>
 
@@ -639,10 +649,145 @@
           </div>
         </div>
 
-        <!-- Color Swatches & Native Color Picker -->
+        <!-- Dedicated Effect Detail Subpanels -->
+        <!-- 1. Outline Custom Controls -->
+        <div class="effect-detail-panel hidden" id="panelOutlineSettings">
+          <div class="effect-detail-header">
+            <span>Outline (Stroke) Settings</span>
+            <span class="subgroup-active-tag" id="activeOutlineTag">#000000</span>
+          </div>
+          <div class="color-swatches-row">
+            <button class="color-swatch active outline-color-swatch" data-color="#000000" style="background:#000000; border: 1px solid rgba(255,255,255,0.3);"></button>
+            <button class="color-swatch outline-color-swatch" data-color="#ffffff" style="background:#ffffff;"></button>
+            <button class="color-swatch outline-color-swatch" data-color="#ff3838" style="background:#ff3838;"></button>
+            <button class="color-swatch outline-color-swatch" data-color="#ffd32a" style="background:#ffd32a;"></button>
+            <button class="color-swatch outline-color-swatch" data-color="#17c0eb" style="background:#17c0eb;"></button>
+            <button class="color-swatch outline-color-swatch" data-color="#a55eea" style="background:#a55eea;"></button>
+            <label class="custom-color-picker-label" title="Custom Outline Color">
+              <input type="color" id="outlineColorPicker" value="#000000" class="hidden-color-input">
+              <span class="color-picker-wheel">🎨</span>
+            </label>
+          </div>
+          <div class="brush-settings dual-sliders">
+            <div class="slider-row">
+              <div class="slider-label"><span>Outline Width</span><span id="outlineWidthVal">4px</span></div>
+              <div class="slider-control">
+                <input type="range" id="outlineWidthSlider" min="1" max="25" value="4" class="custom-range">
+              </div>
+            </div>
+            <div class="slider-row">
+              <div class="slider-label"><span>Outline Opacity</span><span id="outlineOpacityVal">100%</span></div>
+              <div class="slider-control">
+                <input type="range" id="outlineOpacitySlider" min="5" max="100" value="100" class="custom-range">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. Shadow Custom Controls -->
+        <div class="effect-detail-panel hidden" id="panelShadowSettings">
+          <div class="effect-detail-header">
+            <span>Shadow Settings</span>
+            <span class="subgroup-active-tag" id="activeShadowTag">#000000</span>
+          </div>
+          <div class="color-swatches-row">
+            <button class="color-swatch active shadow-color-swatch" data-color="#000000" style="background:#000000; border: 1px solid rgba(255,255,255,0.3);"></button>
+            <button class="color-swatch shadow-color-swatch" data-color="#1e293b" style="background:#1e293b;"></button>
+            <button class="color-swatch shadow-color-swatch" data-color="#ff3838" style="background:#ff3838;"></button>
+            <button class="color-swatch shadow-color-swatch" data-color="#17c0eb" style="background:#17c0eb;"></button>
+            <label class="custom-color-picker-label" title="Custom Shadow Color">
+              <input type="color" id="shadowColorPicker" value="#000000" class="hidden-color-input">
+              <span class="color-picker-wheel">🎨</span>
+            </label>
+          </div>
+          <div class="brush-settings dual-sliders">
+            <div class="slider-row">
+              <div class="slider-label"><span>Shadow Blur</span><span id="shadowBlurVal">12px</span></div>
+              <div class="slider-control">
+                <input type="range" id="shadowBlurSlider" min="0" max="30" value="12" class="custom-range">
+              </div>
+            </div>
+            <div class="slider-row">
+              <div class="slider-label"><span>Shadow Distance</span><span id="shadowDistVal">4px</span></div>
+              <div class="slider-control">
+                <input type="range" id="shadowDistSlider" min="0" max="25" value="4" class="custom-range">
+              </div>
+            </div>
+            <div class="slider-row">
+              <div class="slider-label"><span>Shadow Opacity</span><span id="shadowOpacityVal">90%</span></div>
+              <div class="slider-control">
+                <input type="range" id="shadowOpacitySlider" min="5" max="100" value="90" class="custom-range">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. Glow Custom Controls -->
+        <div class="effect-detail-panel hidden" id="panelGlowSettings">
+          <div class="effect-detail-header">
+            <span>Neon Glow Settings</span>
+            <span class="subgroup-active-tag" id="activeGlowTag">#38BDF8</span>
+          </div>
+          <div class="color-swatches-row">
+            <button class="color-swatch active glow-color-swatch" data-color="#38bdf8" style="background:#38bdf8;"></button>
+            <button class="color-swatch glow-color-swatch" data-color="#a855f7" style="background:#a855f7;"></button>
+            <button class="color-swatch glow-color-swatch" data-color="#22c55e" style="background:#22c55e;"></button>
+            <button class="color-swatch glow-color-swatch" data-color="#eab308" style="background:#eab308;"></button>
+            <button class="color-swatch glow-color-swatch" data-color="#ef4444" style="background:#ef4444;"></button>
+            <button class="color-swatch glow-color-swatch" data-color="#ffffff" style="background:#ffffff;"></button>
+            <label class="custom-color-picker-label" title="Custom Glow Color">
+              <input type="color" id="glowColorPicker" value="#38bdf8" class="hidden-color-input">
+              <span class="color-picker-wheel">🎨</span>
+            </label>
+          </div>
+          <div class="brush-settings dual-sliders">
+            <div class="slider-row">
+              <div class="slider-label"><span>Glow Spread</span><span id="glowRadiusVal">18px</span></div>
+              <div class="slider-control">
+                <input type="range" id="glowRadiusSlider" min="2" max="40" value="18" class="custom-range">
+              </div>
+            </div>
+            <div class="slider-row">
+              <div class="slider-label"><span>Glow Opacity</span><span id="glowOpacityVal">100%</span></div>
+              <div class="slider-control">
+                <input type="range" id="glowOpacitySlider" min="5" max="100" value="100" class="custom-range">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. Box Custom Controls -->
+        <div class="effect-detail-panel hidden" id="panelBoxSettings">
+          <div class="effect-detail-header">
+            <span>Box / Badge Background</span>
+            <span class="subgroup-active-tag" id="activeBoxTag">#000000</span>
+          </div>
+          <div class="color-swatches-row">
+            <button class="color-swatch active box-color-swatch" data-color="#000000" style="background:#000000; border: 1px solid rgba(255,255,255,0.3);"></button>
+            <button class="color-swatch box-color-swatch" data-color="#1e1b4b" style="background:#1e1b4b;"></button>
+            <button class="color-swatch box-color-swatch" data-color="#0f172a" style="background:#0f172a;"></button>
+            <button class="color-swatch box-color-swatch" data-color="#be123c" style="background:#be123c;"></button>
+            <button class="color-swatch box-color-swatch" data-color="#047857" style="background:#047857;"></button>
+            <button class="color-swatch box-color-swatch" data-color="#ffffff" style="background:#ffffff;"></button>
+            <label class="custom-color-picker-label" title="Custom Box Color">
+              <input type="color" id="boxColorPicker" value="#000000" class="hidden-color-input">
+              <span class="color-picker-wheel">🎨</span>
+            </label>
+          </div>
+          <div class="brush-settings dual-sliders">
+            <div class="slider-row">
+              <div class="slider-label"><span>Box Opacity</span><span id="boxOpacityVal">72%</span></div>
+              <div class="slider-control">
+                <input type="range" id="boxOpacitySlider" min="5" max="100" value="72" class="custom-range">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Main Text Color Swatches & Native Color Picker -->
         <div class="settings-subgroup">
           <div class="subgroup-header">
-            <span>Color</span>
+            <span>Text Fill Color</span>
             <span class="subgroup-active-tag" id="activeColorTag">#FFFFFF</span>
           </div>
           <div class="color-swatches-row">
@@ -661,7 +806,7 @@
           </div>
         </div>
 
-        <!-- Size & Opacity Dual Sliders -->
+        <!-- Size & Text Fill Opacity Dual Sliders -->
         <div class="brush-settings dual-sliders">
           <div class="slider-row">
             <div class="slider-label">
@@ -677,7 +822,7 @@
 
           <div class="slider-row">
             <div class="slider-label">
-              <span>Opacity</span>
+              <span>Text Fill Opacity</span>
               <span id="textOpacityVal">100%</span>
             </div>
             <div class="slider-control">

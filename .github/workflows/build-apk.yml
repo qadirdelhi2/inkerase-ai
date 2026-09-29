@@ -27,7 +27,7 @@ jobs:
       - name: Prepare Web Assets
         run: |
           mkdir -p www
-          cp -r index.html style.css app.js manifest.json icon-512.png fonts sw.js qr_code.png www/ 2>/dev/null || cp -r index.html style.css app.js manifest.json icon-512.png fonts www/
+          cp -r index.html style.css app.js manifest.json icon-512.png fonts mediapipe sw.js qr_code.png www/ 2>/dev/null || cp -r index.html style.css app.js manifest.json icon-512.png fonts mediapipe www/
 
       - name: Install Dependencies & Init Capacitor
         run: |
