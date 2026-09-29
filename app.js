@@ -3430,6 +3430,8 @@
             const downloadUrl = expCanvas.toDataURL(mimeType, 0.98);
             triggerDownload(downloadUrl, `inkerase_ai_upscale_${stepPct}pct_${Date.now()}.${ext}`);
 
+            await autoSaveCurrentDraft();
+
             if (processingOverlay) processingOverlay.classList.add('hidden');
             closeExportModal();
             if (saveSuccessModal) saveSuccessModal.classList.remove('hidden');
@@ -3473,6 +3475,8 @@
 
     const dataUrl = expCanvas.toDataURL(mimeType, jpegQuality);
     triggerDownload(dataUrl, `inkerase_studio_${stepPct}pct_${Date.now()}.${ext}`);
+
+    await autoSaveCurrentDraft();
 
     closeExportModal();
     if (saveSuccessModal) saveSuccessModal.classList.remove('hidden');
@@ -3531,5 +3535,310 @@
   if (btnSaveImageText) btnSaveImageText.addEventListener('click', openExportModal);
   if (btnSaveImageCanvas) btnSaveImageCanvas.addEventListener('click', openExportModal);
   if (btnSaveImageCrop) btnSaveImageCrop.addEventListener('click', openExportModal);
+
+  // ==========================================
+  // 11. IndexedDB Drafts & Project Storage Engine
+  // ==========================================
+  const DB_NAME = 'InkEraseDraftsDB';
+  const DB_VERSION = 1;
+  const STORE_NAME = 'drafts';
+
+  const homeDraftsSection = document.getElementById('homeDraftsSection');
+  const homeDraftsList = document.getElementById('homeDraftsList');
+  const homeDraftsCount = document.getElementById('homeDraftsCount');
+  const btnOpenAllDrafts = document.getElementById('btnOpenAllDrafts');
+  const btnHeaderDrafts = document.getElementById('btnHeaderDrafts');
+  const headerDraftsCount = document.getElementById('headerDraftsCount');
+  const draftsModal = document.getElementById('draftsModal');
+  const btnCloseDraftsModal = document.getElementById('btnCloseDraftsModal');
+  const draftsModalList = document.getElementById('draftsModalList');
+  const draftsModalSub = document.getElementById('draftsModalSub');
+  const btnModalViewDrafts = document.getElementById('btnModalViewDrafts');
+
+  function openDraftsDB() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+          store.createIndex('timestamp', 'timestamp', { unique: false });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function saveDraftToDB(draftObj) {
+    try {
+      const db = await openDraftsDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        store.put(draftObj);
+        tx.oncomplete = () => resolve(draftObj);
+        tx.onerror = () => reject(tx.error);
+      });
+    } catch (e) {
+      console.warn('[Drafts] saveDraftToDB failed:', e);
+    }
+  }
+
+  async function getAllDraftsFromDB() {
+    try {
+      const db = await openDraftsDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.getAll();
+        req.onsuccess = () => {
+          const drafts = (req.result || []).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+          resolve(drafts);
+        };
+        req.onerror = () => reject(req.error);
+      });
+    } catch (e) {
+      console.warn('[Drafts] getAllDraftsFromDB failed:', e);
+      return [];
+    }
+  }
+
+  async function deleteDraftFromDB(id) {
+    try {
+      const db = await openDraftsDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        store.delete(id);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    } catch (e) {
+      console.warn('[Drafts] deleteDraftFromDB failed:', e);
+    }
+  }
+
+  async function autoSaveCurrentDraft() {
+    if (!currentWorkingImage || !baseCanvas.width) return;
+    try {
+      const now = new Date();
+      const id = `draft_${now.getTime()}`;
+      const dateStr = now.toLocaleDateString(undefined, { 
+        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' 
+      });
+
+      // 1. Create compact 240px thumbnail
+      const thumbCanvas = document.createElement('canvas');
+      const scale = Math.min(240 / baseCanvas.width, 240 / baseCanvas.height);
+      thumbCanvas.width = Math.max(1, Math.round(baseCanvas.width * scale));
+      thumbCanvas.height = Math.max(1, Math.round(baseCanvas.height * scale));
+      const thumbCtx = thumbCanvas.getContext('2d');
+      thumbCtx.drawImage(baseCanvas, 0, 0, thumbCanvas.width, thumbCanvas.height);
+      const thumbB64 = thumbCanvas.toDataURL('image/jpeg', 0.85);
+
+      // 2. Full Working Image & Pristine Original
+      const workingData = baseCanvas.toDataURL('image/jpeg', 0.95);
+      let originalData = workingData;
+      if (pristineOriginalImage) {
+        const origCanvas = document.createElement('canvas');
+        origCanvas.width = pristineOriginalImage.width;
+        origCanvas.height = pristineOriginalImage.height;
+        const origCtx = origCanvas.getContext('2d');
+        origCtx.drawImage(pristineOriginalImage, 0, 0);
+        originalData = origCanvas.toDataURL('image/jpeg', 0.95);
+      }
+
+      const draft = {
+        id,
+        timestamp: now.getTime(),
+        dateStr,
+        width: baseCanvas.width,
+        height: baseCanvas.height,
+        thumbnail: thumbB64,
+        workingImageData: workingData,
+        originalImageData: originalData
+      };
+
+      await saveDraftToDB(draft);
+      console.log('[Drafts] Auto-saved project draft:', id);
+      renderAllDraftsUI();
+    } catch (err) {
+      console.warn('[Drafts] Auto-save error:', err);
+    }
+  }
+
+  window.loadDraftById = async function(id) {
+    const drafts = await getAllDraftsFromDB();
+    const draft = drafts.find(d => d.id === id);
+    if (!draft) return;
+
+    try {
+      if (processingOverlay) {
+        processingOverlay.classList.remove('hidden');
+        processStatusTitle.textContent = "Loading Project Draft...";
+        processStatusSub.textContent = `Restoring ${draft.width} × ${draft.height} photo`;
+      }
+
+      const workImg = new Image();
+      await new Promise((resolve, reject) => {
+        workImg.onload = resolve;
+        workImg.onerror = reject;
+        workImg.src = draft.workingImageData;
+      });
+
+      if (draft.originalImageData) {
+        const origImg = new Image();
+        await new Promise((resolve) => {
+          origImg.onload = () => {
+            pristineOriginalImage = origImg;
+            resolve();
+          };
+          origImg.onerror = resolve;
+          origImg.src = draft.originalImageData;
+        });
+      }
+
+      currentWorkingImage = workImg;
+      baseCanvas.width = workImg.width;
+      baseCanvas.height = workImg.height;
+      baseCtx.drawImage(workImg, 0, 0);
+
+      maskCanvas.width = workImg.width;
+      maskCanvas.height = workImg.height;
+      maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+      cursorCanvas.width = workImg.width;
+      cursorCanvas.height = workImg.height;
+      cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
+
+      undoStack = [];
+      redoStack = [];
+      saveImageState();
+
+      emptyState.classList.add('hidden');
+      editorView.classList.remove('hidden');
+      bottomBar.classList.remove('hidden');
+      btnNewImage.classList.remove('hidden');
+
+      fitCanvasToCurrentViewport();
+      switchStudioTool('erase');
+      closeDraftsModal();
+    } catch (err) {
+      alert('Error opening draft: ' + err.message);
+    } finally {
+      if (processingOverlay) processingOverlay.classList.add('hidden');
+    }
+  };
+
+  window.deleteDraftById = async function(id, event) {
+    if (event) event.stopPropagation();
+    if (!confirm('Are you sure you want to delete this draft?')) return;
+    await deleteDraftFromDB(id);
+    renderAllDraftsUI();
+  };
+
+  function openDraftsModal() {
+    if (draftsModal) {
+      draftsModal.classList.remove('hidden');
+      renderAllDraftsUI();
+    }
+  }
+
+  function closeDraftsModal() {
+    if (draftsModal) draftsModal.classList.add('hidden');
+  }
+
+  async function renderAllDraftsUI() {
+    const drafts = await getAllDraftsFromDB();
+    const count = drafts.length;
+
+    // 1. Header Count Pill
+    if (headerDraftsCount) {
+      if (count > 0) {
+        headerDraftsCount.textContent = count;
+        headerDraftsCount.classList.remove('hidden');
+      } else {
+        headerDraftsCount.classList.add('hidden');
+      }
+    }
+
+    // 2. Home Screen Section
+    if (homeDraftsSection && homeDraftsList && homeDraftsCount) {
+      if (count > 0) {
+        homeDraftsCount.textContent = `${count} saved`;
+        homeDraftsSection.classList.remove('hidden');
+        homeDraftsList.innerHTML = drafts.slice(0, 8).map(d => `
+          <div class="home-draft-card" onclick="loadDraftById('${d.id}')">
+            <img src="${d.thumbnail}" alt="Draft thumbnail" class="home-draft-thumb">
+            <div class="home-draft-info">
+              <span class="home-draft-date">${d.dateStr}</span>
+              <span class="home-draft-dim">${d.width} × ${d.height} px</span>
+            </div>
+          </div>
+        `).join('');
+      } else {
+        homeDraftsSection.classList.add('hidden');
+      }
+    }
+
+    // 3. Modal List
+    if (draftsModalList) {
+      if (draftsModalSub) {
+        draftsModalSub.textContent = count > 0 
+          ? `${count} saved photo project${count > 1 ? 's' : ''}` 
+          : 'Open previous photos to continue editing';
+      }
+
+      if (count === 0) {
+        draftsModalList.innerHTML = `
+          <div class="drafts-empty-notice">
+            <div class="drafts-empty-icon">📁</div>
+            <h4>No Saved Drafts Yet</h4>
+            <p>Whenever you edit and save a photo, your project draft will be stored here automatically so you can resume anytime!</p>
+          </div>
+        `;
+      } else {
+        draftsModalList.innerHTML = drafts.map(d => `
+          <div class="draft-card" data-id="${d.id}">
+            <div class="draft-thumb-wrapper" onclick="loadDraftById('${d.id}')">
+              <img src="${d.thumbnail}" alt="Draft thumbnail" class="draft-thumb-img">
+              <div class="draft-play-badge">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                  <path d="M12 20h9"/>
+                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                </svg>
+                <span>Edit</span>
+              </div>
+            </div>
+            <div class="draft-card-footer">
+              <div class="draft-meta">
+                <span class="draft-date">${d.dateStr}</span>
+                <span class="draft-res">${d.width} × ${d.height} px</span>
+              </div>
+              <button type="button" class="btn-del-draft" title="Delete Draft" onclick="deleteDraftById('${d.id}', event)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        `).join('');
+      }
+    }
+  }
+
+  // Event Listeners for Drafts
+  if (btnHeaderDrafts) btnHeaderDrafts.addEventListener('click', openDraftsModal);
+  if (btnOpenAllDrafts) btnOpenAllDrafts.addEventListener('click', openDraftsModal);
+  if (btnCloseDraftsModal) btnCloseDraftsModal.addEventListener('click', closeDraftsModal);
+  if (btnModalViewDrafts) {
+    btnModalViewDrafts.addEventListener('click', () => {
+      if (saveSuccessModal) saveSuccessModal.classList.add('hidden');
+      openDraftsModal();
+    });
+  }
+
+  // Initial load of drafts from IndexedDB on app startup
+  renderAllDraftsUI();
 
 })();

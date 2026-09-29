@@ -39,8 +39,15 @@
         </div>
       </div>
 
-      <!-- Right: Model Active Badge -->
+      <!-- Right: Drafts & AI Badge -->
       <div class="top-actions">
+        <button id="btnHeaderDrafts" class="badge-chip btn-drafts-badge" title="View Saved Projects & Drafts">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+          </svg>
+          <span>Drafts</span>
+          <span class="drafts-pill-count hidden" id="headerDraftsCount">0</span>
+        </button>
         <button id="btnHardwareInfo" class="badge-chip" title="Studio LaMa Neural Engine Active">
           <span class="pulse-dot"></span>
           <span id="gpuStatusText">⚡ Studio AI</span>
@@ -91,6 +98,23 @@
               <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
             </svg>
             <span>100% Private: Photos are processed securely on-device</span>
+          </div>
+        </div>
+
+        <!-- Recent Drafts Section on Home Screen -->
+        <div class="home-drafts-section hidden" id="homeDraftsSection">
+          <div class="home-drafts-header">
+            <div class="home-drafts-title">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+              </svg>
+              <span>Recent Projects & Drafts</span>
+              <span class="drafts-count-badge" id="homeDraftsCount">0</span>
+            </div>
+            <button type="button" id="btnOpenAllDrafts" class="btn-link-action">View All</button>
+          </div>
+          <div class="home-drafts-carousel" id="homeDraftsList">
+            <!-- Draft cards dynamically inserted here -->
           </div>
         </div>
       </div>
@@ -1211,6 +1235,15 @@
       </div>
       <h3>Image Saved to Gallery!</h3>
       <p>Your clean photo has been exported in full resolution.</p>
+      
+      <!-- Auto-save notification -->
+      <div class="draft-saved-notice">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+        </svg>
+        <span>Auto-saved to Drafts for future edits</span>
+      </div>
+
       <div class="save-modal-buttons">
         <button id="btnModalNewImage" class="btn-primary-modal">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1220,10 +1253,41 @@
           <span>Edit Another Photo</span>
         </button>
         <button id="btnModalStay" class="btn-secondary-modal">Continue with this Photo</button>
+        <button id="btnModalViewDrafts" class="btn-drafts-modal">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+          </svg>
+          <span>View All Saved Drafts</span>
+        </button>
       </div>
     </div>
   </div>
 
-  <script src="app.js?v=20260928_clean_v10"></script>
+  <!-- Dedicated Drafts & Projects Modal (Full-Screen Fixed Overlay) -->
+  <div class="save-modal-overlay hidden" id="draftsModal">
+    <div class="save-modal-card drafts-modal-card">
+      <div class="export-modal-header">
+        <div class="export-title-row">
+          <div class="export-icon-badge drafts-icon-badge">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+            </svg>
+          </div>
+          <div>
+            <h3 class="export-main-title">Saved Projects & Drafts</h3>
+            <span class="export-subtitle" id="draftsModalSub">Open previous photos to continue editing</span>
+          </div>
+        </div>
+        <button id="btnCloseDraftsModal" class="btn-icon-close" title="Close" aria-label="Close">✕</button>
+      </div>
+
+      <!-- Drafts Content Area -->
+      <div class="drafts-modal-body" id="draftsModalList">
+        <!-- Draft cards rendered dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js?v=20260929_drafts_v1"></script>
 </body>
 </html>
