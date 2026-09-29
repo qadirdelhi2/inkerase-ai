@@ -584,30 +584,33 @@
   function clampPan(vWidth, vHeight) {
     const curW = displayWidth * scale;
     const curH = displayHeight * scale;
-
-    const marginX = Math.max(60, Math.round(vWidth * 0.3));
-    const marginY = Math.max(60, Math.round(vHeight * 0.3));
+    const margin = 80;
 
     if (curW > vWidth) {
-      const minPanX = vWidth - curW - marginX;
-      const maxPanX = marginX;
+      const minPanX = vWidth - curW - margin;
+      const maxPanX = margin;
       panX = Math.min(maxPanX, Math.max(minPanX, panX));
     } else {
-      panX = Math.round((vWidth - curW) / 2);
+      const center = (vWidth - curW) / 2;
+      panX = Math.min(center + margin, Math.max(center - margin, panX));
     }
 
     if (curH > vHeight) {
-      const minPanY = vHeight - curH - marginY;
-      const maxPanY = marginY;
+      const minPanY = vHeight - curH - margin;
+      const maxPanY = margin;
       panY = Math.min(maxPanY, Math.max(minPanY, panY));
     } else {
-      panY = Math.round((vHeight - curH) / 2);
+      const center = (vHeight - curH) / 2;
+      panY = Math.min(center + margin, Math.max(center - margin, panY));
     }
   }
 
   // Multi-Touch Focal-Point Pinch Zoom + 2-Finger Pan + Single-Finger Drawing
   let lastPinchEndTime = 0;
   let currentStrokePoints = [];
+  let prevPinchDist = 0;
+  let prevMidX = 0;
+  let prevMidY = 0;
 
   canvasViewport.addEventListener('touchstart', (e) => {
     if (e.touches.length >= 2) {
@@ -632,21 +635,16 @@
 
       const t1 = e.touches[0];
       const t2 = e.touches[1];
-      startPinchDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-      startScale = scale;
-      startPanX = panX;
-      startPanY = panY;
-      pinchMidpoint = {
-        x: (t1.clientX + t2.clientX) / 2,
-        y: (t1.clientY + t2.clientY) / 2
-      };
+      prevPinchDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+      prevMidX = (t1.clientX + t2.clientX) / 2;
+      prevMidY = (t1.clientY + t2.clientY) / 2;
       e.preventDefault();
       return;
     }
 
     if (e.touches.length === 1) {
-      // If we just finished a 2-finger gesture within the last 350ms, ignore trailing release touches
-      if (Date.now() - lastPinchEndTime < 350 || isPinching) {
+      // If we just finished a 2-finger gesture within the last 300ms, ignore trailing release touches
+      if (Date.now() - lastPinchEndTime < 300 || isPinching) {
         e.preventDefault();
         return;
       }
@@ -680,29 +678,38 @@
       if (e.touches.length >= 2) {
         const t1 = e.touches[0];
         const t2 = e.touches[1];
-        const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-        const currentMid = {
-          x: (t1.clientX + t2.clientX) / 2,
-          y: (t1.clientY + t2.clientY) / 2
-        };
+        const currentDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        const currentMidX = (t1.clientX + t2.clientX) / 2;
+        const currentMidY = (t1.clientY + t2.clientY) / 2;
 
-        if (startPinchDist > 5) {
-          const factor = dist / startPinchDist;
-          const newScale = Math.min(8.0, Math.max(0.75, startScale * factor));
+        if (prevPinchDist > 5 && currentDist > 5) {
+          // Smooth delta scale multiplier
+          const distRatio = currentDist / prevPinchDist;
+          const scaleMultiplier = 1.0 + (distRatio - 1.0) * 0.95;
+          const targetScale = Math.min(8.0, Math.max(0.75, scale * scaleMultiplier));
+          const actualRatio = targetScale / scale;
 
-          // True focal point zoom & pan: keeping image directly anchored under fingers
-          panX = currentMid.x - ((pinchMidpoint.x - startPanX) / startScale) * newScale;
-          panY = currentMid.y - ((pinchMidpoint.y - startPanY) / startScale) * newScale;
-          scale = newScale;
+          // Pan delta directly 1:1 with finger shift
+          const dx = currentMidX - prevMidX;
+          const dy = currentMidY - prevMidY;
+
+          // True focal-point zoom anchored between the two fingers + smooth 1:1 pan
+          panX = currentMidX - (currentMidX - panX) * actualRatio + dx;
+          panY = currentMidY - (currentMidY - panY) * actualRatio + dy;
+          scale = targetScale;
 
           clampPan(canvasViewport.clientWidth, canvasViewport.clientHeight);
           updateTransform();
         }
+
+        prevPinchDist = currentDist;
+        prevMidX = currentMidX;
+        prevMidY = currentMidY;
       }
       return;
     }
 
-    if (e.touches.length === 1 && !isPinching && Date.now() - lastPinchEndTime >= 350) {
+    if (e.touches.length === 1 && !isPinching && Date.now() - lastPinchEndTime >= 300) {
       e.preventDefault();
       const clientX = e.touches[0].clientX;
       const clientY = e.touches[0].clientY;
@@ -724,6 +731,11 @@
           clampPan(canvasViewport.clientWidth, canvasViewport.clientHeight);
           updateTransform();
         }
+      } else if (e.touches.length === 1) {
+        // One finger released: seamless transition to remaining finger without jumping
+        const t = e.touches[0];
+        prevMidX = t.clientX;
+        prevMidY = t.clientY;
       }
       return;
     }
@@ -777,50 +789,58 @@
     const touchX = clientX - vpRect.left;
     const touchY = clientY - vpRect.top;
 
-    // Position circular loupe ~80px offset above touch point
+    // Position circular loupe ~70px offset above touch point
     let loupeX = touchX;
-    let loupeY = touchY - 80;
+    let loupeY = touchY - 70;
 
-    // If touching near the top of viewport, flip below finger so it stays on screen
-    if (loupeY < 85) {
-      loupeY = touchY + 155;
+    // If touching near the top of viewport, flip below finger so it's not off-screen
+    if (loupeY < 75) {
+      loupeY = touchY + 125;
     }
 
-    // Clamp horizontally to stay inside viewport
-    const halfSize = 70;
-    loupeX = Math.max(halfSize, Math.min(vpRect.width - halfSize, loupeX));
+    // Clamp horizontally to stay completely inside viewport
+    const halfSize = 55;
+    loupeX = Math.max(halfSize + 8, Math.min(vpRect.width - halfSize - 8, loupeX));
 
     pipMagnifier.style.left = `${loupeX}px`;
     pipMagnifier.style.top = `${loupeY}px`;
     pipMagnifier.classList.remove('hidden');
 
-    // 2.5x Optical Zoom rendering
-    const pipW = pipCanvas.width;
-    const pipH = pipCanvas.height;
-    const zoomFactor = 2.5;
-    const srcSize = pipW / zoomFactor;
+    // True Screen-Relative 2.0x Optical Magnification
+    const pipW = pipCanvas.width; // 110
+    const pipH = pipCanvas.height; // 110
+    const canvasRect = baseCanvas.getBoundingClientRect();
+    const screenPixelToCanvasRatio = baseCanvas.width / (canvasRect.width || 1);
+
+    // 2.0x optical screen zoom: 110px loupe displays 55px worth of the visible screen area
+    const srcSize = (pipW / 2.0) * screenPixelToCanvasRatio;
 
     pipCtx.clearRect(0, 0, pipW, pipH);
-    pipCtx.fillStyle = '#111215';
+    pipCtx.fillStyle = '#141418';
     pipCtx.fillRect(0, 0, pipW, pipH);
 
     const sx = canvasX - srcSize / 2;
     const sy = canvasY - srcSize / 2;
 
-    // Draw magnified base photo
+    // 1. Draw magnified base photo under finger
     pipCtx.drawImage(baseCanvas, sx, sy, srcSize, srcSize, 0, 0, pipW, pipH);
 
-    // If tattoo erase tool, overlay mask canvas magnified
+    // 2. If tattoo erase, draw mask with 45% transparency so photo is ALWAYS visible!
     if (activeTool === 'erase') {
+      pipCtx.save();
+      pipCtx.globalAlpha = 0.45;
       pipCtx.drawImage(maskCanvas, sx, sy, srcSize, srcSize, 0, 0, pipW, pipH);
+      pipCtx.restore();
     }
 
-    // Draw magnified brush ring at center
+    // 3. Draw targeting reticle ring showing brush boundary at 2.0x zoom
     const sf = getScaleFactor();
-    const reticleRadius = radius * sf * zoomFactor;
+    const screenRadius = radius * sf * ((canvasRect.width || 1) / baseCanvas.width);
+    const reticleRadius = Math.max(3, screenRadius * 2.0);
+
     pipCtx.save();
     pipCtx.beginPath();
-    pipCtx.arc(pipW / 2, pipH / 2, Math.max(2.5, reticleRadius), 0, Math.PI * 2);
+    pipCtx.arc(pipW / 2, pipH / 2, reticleRadius, 0, Math.PI * 2);
     if (activeTool === 'skinsmooth') {
       pipCtx.strokeStyle = 'rgba(251, 191, 36, 0.95)';
     } else if (activeTool === 'brushblur') {
@@ -830,6 +850,12 @@
     }
     pipCtx.lineWidth = 2.0;
     pipCtx.stroke();
+
+    // Center precision dot
+    pipCtx.beginPath();
+    pipCtx.arc(pipW / 2, pipH / 2, 2.2, 0, Math.PI * 2);
+    pipCtx.fillStyle = pipCtx.strokeStyle;
+    pipCtx.fill();
     pipCtx.restore();
   }
 
@@ -1293,7 +1319,7 @@
 
       // 1. Try server segmentation if connected
       try {
-        const maxDim = 1024;
+        const maxDim = 640;
         const w = baseCanvas.width;
         const h = baseCanvas.height;
         const s = Math.min(1.0, maxDim / Math.max(w, h));
@@ -1302,12 +1328,12 @@
         fastCanvas.height = Math.max(1, Math.round(h * s));
         const fCtx = fastCanvas.getContext('2d');
         fCtx.drawImage(baseCanvas, 0, 0, fastCanvas.width, fastCanvas.height);
-        const imgB64 = fastCanvas.toDataURL('image/jpeg', 0.88);
+        const imgB64 = fastCanvas.toDataURL('image/jpeg', 0.85);
 
         progressFill.style.width = '60%';
 
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 6000);
+        const timeoutId = setTimeout(() => controller.abort(), 35000);
 
         const res = await fetch(getApiEndpoint('/api/segment_subject'), {
           method: 'POST',
@@ -1429,7 +1455,7 @@
     if (!currentWorkingImage || !cachedSubjectCutout) return;
 
     const blurPx = parseInt(bgBlurDensityInput.value, 10);
-    const featherPx = bgBlurFeatherInput ? parseInt(bgBlurFeatherInput.value, 10) : 8;
+    const featherPx = bgBlurFeatherInput ? parseInt(bgBlurFeatherInput.value, 10) : 2;
 
     const w = baseCanvas.width;
     const h = baseCanvas.height;
@@ -1730,17 +1756,19 @@
   // 6. Tool 5: Color Adjustment (Lighting, Contrast, Saturation, Warmth)
   // ==========================================
   function buildAdjustFilterString() {
-    const b = 100 + adjustBrightness;
-    const c = 100 + adjustContrast;
+    // Studio Photographic Exposure: Lifts midtones smoothly while protecting highlights from blowing out
+    const b = 100 + adjustBrightness * 0.35;
+    const highlightProtect = adjustBrightness > 0 ? adjustBrightness * 0.15 : 0;
+    const c = Math.max(20, 100 + adjustContrast - highlightProtect);
     const s = Math.max(0, 100 + adjustSaturation);
     let warmthPart = '';
 
     if (adjustWarmth > 0) {
       // Warm golden sun-kissed tone
-      warmthPart = ` sepia(${adjustWarmth * 0.45}%) saturate(${100 + adjustWarmth * 0.2}%)`;
+      warmthPart = ` sepia(${adjustWarmth * 0.40}%) saturate(${100 + adjustWarmth * 0.15}%)`;
     } else if (adjustWarmth < 0) {
       // Cool oceanic / twilight tone
-      warmthPart = ` hue-rotate(${adjustWarmth * 0.35}deg)`;
+      warmthPart = ` hue-rotate(${adjustWarmth * 0.30}deg)`;
     }
 
     return `brightness(${b}%) contrast(${c}%) saturate(${s}%)${warmthPart}`;
