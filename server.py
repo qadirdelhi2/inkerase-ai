@@ -245,11 +245,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             session_rmbg = get_rmbg_session()
             cutout_small = rembg.remove(infer_img, session=session_rmbg)
 
-            # Resize alpha cutout back to input dimensions for razor-sharp matching
-            if cutout_small.size != (w, h):
-                cutout_pil = cutout_small.resize((w, h), Image.BILINEAR)
+            # Isolate alpha channel to eliminate black edge premultiplication artifacts:
+            alpha_small = cutout_small.split()[-1]
+            if alpha_small.size != (w, h):
+                alpha_pil = alpha_small.resize((w, h), Image.BILINEAR)
             else:
-                cutout_pil = cutout_small
+                alpha_pil = alpha_small
+
+            # Re-bind genuine camera pixels with the alpha matte (100% natural edges, zero dark halo)
+            cutout_pil = orig_img.copy()
+            cutout_pil.putalpha(alpha_pil)
 
             # Fast PNG compression (compress_level=1 is ~6x faster than level 6 with zero quality loss)
             buf = io.BytesIO()

@@ -40,6 +40,8 @@
   const tabBrushBlur = document.getElementById('tabBrushBlur');
   const tabSkinSmooth = document.getElementById('tabSkinSmooth');
   const tabAdjust = document.getElementById('tabAdjust');
+  const tabCanvas = document.getElementById('tabCanvas');
+  const tabCrop = document.getElementById('tabCrop');
 
   // Tool Panels
   const panelErase = document.getElementById('panelErase');
@@ -47,6 +49,9 @@
   const panelBrushBlur = document.getElementById('panelBrushBlur');
   const panelSkinSmooth = document.getElementById('panelSkinSmooth');
   const panelAdjust = document.getElementById('panelAdjust');
+  const panelCanvas = document.getElementById('panelCanvas');
+  const panelCrop = document.getElementById('panelCrop');
+  const cropOverlayLayer = document.getElementById('cropOverlayLayer');
 
   // Tool 1: Tattoo Erase Controls
   const brushSizeInput = document.getElementById('brushSize');
@@ -239,6 +244,20 @@
   let boxColor = '#000000';
   let boxOpacity = 0.72;
 
+  // Tool 7: Canva Frame State (Aspect Ratios + InShot Blur/Color BG)
+  let canvasRatio = 'orig';           // 'orig' | '1:1' | '4:5' | '9:16' | '16:9' | '3:4' | '4:3' | '2:3'
+  let canvasBgType = 'blur';          // 'blur' | 'color'
+  let canvasBlurIntensity = 30;       // 5 to 65px
+  let canvasSolidColor = '#FFFFFF';
+  let canvasFitScale = 0.85;          // 0.40 to 1.0
+
+  // Tool 8: Crop & Straighten State
+  let cropRatio = 'free';             // 'free' | 'orig' | '1:1' | '4:5' | '9:16' | '16:9' | '3:4' | '4:3'
+  let cropRect = { x: 0, y: 0, w: 0, h: 0 };
+  let isDraggingCrop = false;
+  let activeCropHandle = null;        // null | 'box' | 'tl' | 'tr' | 'bl' | 'br' | 't' | 'b' | 'l' | 'r'
+  let cropDragStart = { mouseX: 0, mouseY: 0, startRect: null };
+
   function hexToRgba(hex, alpha) {
     if (!hex) return `rgba(255, 255, 255, ${alpha !== undefined ? alpha : 1})`;
     let c = hex.replace('#', '').trim();
@@ -317,12 +336,19 @@
   function switchStudioTool(tool) {
     if (activeTool === tool) return;
 
-    // If leaving bgblur or adjust without applying, restore previous working image
-    if ((activeTool === 'bgblur' || activeTool === 'adjust') && currentWorkingImage) {
+    // If leaving bgblur, adjust or canvas without applying, restore previous working image
+    if ((activeTool === 'bgblur' || activeTool === 'adjust' || activeTool === 'canvas') && currentWorkingImage) {
+      if (baseCanvas.width !== currentWorkingImage.width || baseCanvas.height !== currentWorkingImage.height) {
+        baseCanvas.width = currentWorkingImage.width;
+        baseCanvas.height = currentWorkingImage.height;
+      }
       baseCtx.clearRect(0, 0, baseCanvas.width, baseCanvas.height);
       baseCtx.drawImage(currentWorkingImage, 0, 0);
       if (activeTool === 'adjust') resetAdjustSliders();
     }
+
+    // If leaving crop tool, hide crop overlay
+    if (cropOverlayLayer) cropOverlayLayer.classList.add('hidden');
 
     activeTool = tool;
 
@@ -333,6 +359,8 @@
     tabSkinSmooth.classList.toggle('active', tool === 'skinsmooth');
     tabAdjust.classList.toggle('active', tool === 'adjust');
     if (tabText) tabText.classList.toggle('active', tool === 'text');
+    if (tabCanvas) tabCanvas.classList.toggle('active', tool === 'canvas');
+    if (tabCrop) tabCrop.classList.toggle('active', tool === 'crop');
 
     // Update Panels
     panelErase.classList.toggle('hidden', tool !== 'erase');
@@ -341,6 +369,8 @@
     panelSkinSmooth.classList.toggle('hidden', tool !== 'skinsmooth');
     panelAdjust.classList.toggle('hidden', tool !== 'adjust');
     if (panelText) panelText.classList.toggle('hidden', tool !== 'text');
+    if (panelCanvas) panelCanvas.classList.toggle('hidden', tool !== 'canvas');
+    if (panelCrop) panelCrop.classList.toggle('hidden', tool !== 'crop');
 
     // Update Canvas Overlays
     if (textOverlayLayer) textOverlayLayer.classList.toggle('hidden', tool !== 'text');
@@ -377,6 +407,16 @@
       cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
       updateTextPreview();
       updateUndoState();
+    } else if (tool === 'canvas') {
+      clearMask();
+      cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
+      renderLiveCanvasFrame();
+      updateUndoState();
+    } else if (tool === 'crop') {
+      clearMask();
+      cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
+      initCropOverlay();
+      updateUndoState();
     }
 
     // Auto-fit canvas to viewport so photo is never covered by bottom panels
@@ -397,6 +437,8 @@
   tabSkinSmooth.addEventListener('click', () => switchStudioTool('skinsmooth'));
   tabAdjust.addEventListener('click', () => switchStudioTool('adjust'));
   if (tabText) tabText.addEventListener('click', () => switchStudioTool('text'));
+  if (tabCanvas) tabCanvas.addEventListener('click', () => switchStudioTool('canvas'));
+  if (tabCrop) tabCrop.addEventListener('click', () => switchStudioTool('crop'));
 
   // ==========================================
   // 2. Navigation & New Photo Selection
@@ -526,6 +568,11 @@
     if (textOverlayLayer) {
       textOverlayLayer.style.width = `${displayWidth}px`;
       textOverlayLayer.style.height = `${displayHeight}px`;
+    }
+
+    if (cropOverlayLayer) {
+      cropOverlayLayer.style.width = `${displayWidth}px`;
+      cropOverlayLayer.style.height = `${displayHeight}px`;
     }
 
     scale = 1.0;
@@ -859,9 +906,19 @@
     pipCtx.restore();
   }
 
+  let pipRafId = null;
+  function schedulePipMagnifier(clientX, clientY, canvasX, canvasY, radius) {
+    if (!pipMagnifier || !pipCanvas || !pipCtx) return;
+    if (pipRafId) return;
+    pipRafId = requestAnimationFrame(() => {
+      pipRafId = null;
+      updatePipMagnifier(clientX, clientY, canvasX, canvasY, radius);
+    });
+  }
+
   function startInteraction(clientX, clientY) {
     if (!currentWorkingImage || isComparing) return;
-    if (activeTool === 'bgblur' || activeTool === 'adjust' || activeTool === 'text') return;
+    if (activeTool === 'bgblur' || activeTool === 'adjust' || activeTool === 'text' || activeTool === 'canvas' || activeTool === 'crop') return;
 
     const coords = getCanvasCoords(clientX, clientY);
     lastX = coords.x;
@@ -883,7 +940,6 @@
       drawManualBlurDab(lastX, lastY);
     } else if (activeTool === 'skinsmooth') {
       saveImageState();
-      prepareSmoothSource();
       drawSkinSmoothDab(lastX, lastY);
     }
 
@@ -891,7 +947,7 @@
   }
 
   function moveInteraction(clientX, clientY) {
-    if (activeTool === 'bgblur' || activeTool === 'adjust' || activeTool === 'text') {
+    if (activeTool === 'bgblur' || activeTool === 'adjust' || activeTool === 'text' || activeTool === 'canvas' || activeTool === 'crop') {
       cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
       if (pipMagnifier) pipMagnifier.classList.add('hidden');
       return;
@@ -922,10 +978,15 @@
       lastY = coords.y;
     }
 
-    updatePipMagnifier(clientX, clientY, coords.x, coords.y, activeRadius);
+    // Schedule magnifier rendering via RAF for 60/120fps butter-smooth drawing with zero lag
+    schedulePipMagnifier(clientX, clientY, coords.x, coords.y, activeRadius);
   }
 
   function stopInteraction() {
+    if (pipRafId) {
+      cancelAnimationFrame(pipRafId);
+      pipRafId = null;
+    }
     if (pipMagnifier) pipMagnifier.classList.add('hidden');
     if (!isDrawing) return;
     isDrawing = false;
@@ -1480,29 +1541,21 @@
     mCtx.fillRect(0, 0, w, h);
     mCtx.globalCompositeOperation = 'source-over';
 
-    // 3. Create the precise feathered subject using original photo's genuine colors
+    // 3. Create the precise feathered subject using original photo's genuine colors (ZERO black border!)
     const subjectCanvas = document.createElement('canvas');
     subjectCanvas.width = w;
     subjectCanvas.height = h;
     const sCtx = subjectCanvas.getContext('2d');
 
     if (featherPx > 0) {
-      // Sub-pixel smooth anti-aliased edge (clean edge without fuzzy halo)
-      sCtx.filter = `blur(${Math.max(1, featherPx * 0.75)}px)`;
-      sCtx.drawImage(maskCanvas, 0, 0);
-      sCtx.filter = 'none';
-
-      // Stamp original photo's true colors
-      sCtx.globalCompositeOperation = 'source-in';
-      sCtx.drawImage(currentWorkingImage, 0, 0);
-      sCtx.globalCompositeOperation = 'source-over';
-
-      // Overlay cached cutout so the subject interior remains 100% solid and crisp
-      sCtx.drawImage(cachedSubjectCutout, 0, 0, w, h);
-    } else {
-      // Razor sharp boundary
-      sCtx.drawImage(cachedSubjectCutout, 0, 0, w, h);
+      sCtx.filter = `blur(${featherPx}px)`;
     }
+    sCtx.drawImage(maskCanvas, 0, 0);
+    sCtx.filter = 'none';
+
+    // Stamp original photo's true colors
+    sCtx.globalCompositeOperation = 'source-in';
+    sCtx.drawImage(currentWorkingImage, 0, 0);
 
     // 4. Composite: Blurred background + Soft-feathered natural subject
     baseCtx.clearRect(0, 0, w, h);
@@ -1580,75 +1633,17 @@
     smoothSourceCanvas.height = h;
     const sCtx = smoothSourceCanvas.getContext('2d');
 
-    // Step 1: Base Gaussian blur to even out skin blotchiness, redness, wrinkles & cellulite
-    const lfCanvas = document.createElement('canvas');
-    lfCanvas.width = w;
-    lfCanvas.height = h;
-    const lfCtx = lfCanvas.getContext('2d');
-    const blurRadius = Math.max(2, Math.round(skinSmoothStrength * 0.85));
-    lfCtx.filter = `blur(${blurRadius}px)`;
-    lfCtx.drawImage(currentWorkingImage, 0, 0);
+    // Hardware-accelerated dual-stage skin smoothing with authentic pore & texture preservation:
+    const blurRadius = Math.max(2, Math.round(skinSmoothStrength * 0.75));
+    sCtx.save();
+    sCtx.filter = `blur(${blurRadius}px)`;
+    sCtx.drawImage(currentWorkingImage, 0, 0);
 
-    // Step 2: Realistic Bilateral Skin Synthesis (Preserves natural pores & grain, keeps facial contours crisp)
-    try {
-      const origCanvas = document.createElement('canvas');
-      origCanvas.width = w;
-      origCanvas.height = h;
-      const origCtx = origCanvas.getContext('2d');
-      origCtx.drawImage(currentWorkingImage, 0, 0);
-
-      const origImg = origCtx.getImageData(0, 0, w, h);
-      const lfImg = lfCtx.getImageData(0, 0, w, h);
-      const outImg = sCtx.createImageData(w, h);
-
-      const origData = origImg.data;
-      const lfData = lfImg.data;
-      const outData = outImg.data;
-      const totalLen = w * h * 4;
-
-      const edgeThreshold = 30.0;
-
-      for (let i = 0; i < totalLen; i += 4) {
-        const or = origData[i];
-        const og = origData[i + 1];
-        const ob = origData[i + 2];
-
-        const lr = lfData[i];
-        const lg = lfData[i + 1];
-        const lb = lfData[i + 2];
-
-        const dr = or - lr;
-        const dg = og - lg;
-        const db = ob - lb;
-        const maxDiff = Math.max(Math.abs(dr), Math.abs(dg), Math.abs(db));
-
-        if (maxDiff > edgeThreshold) {
-          // Structural edge (eyes, lips, nostrils, hair strands, jewelry, clothes)
-          // Keep 100% original sharpness so edges NEVER look blurry
-          const t = Math.min(1.0, (maxDiff - edgeThreshold) / 16.0);
-          const poreRatio = 0.42;
-          const sr = lr + dr * poreRatio;
-          const sg = lg + dg * poreRatio;
-          const sb = lb + db * poreRatio;
-
-          outData[i] = Math.round(sr * (1.0 - t) + or * t);
-          outData[i + 1] = Math.round(sg * (1.0 - t) + og * t);
-          outData[i + 2] = Math.round(sb * (1.0 - t) + ob * t);
-        } else {
-          // Smooth skin surface: evens out tone/blemishes while preserving 40% of micro pores and texture!
-          const poreRatio = 0.40;
-          outData[i] = Math.max(0, Math.min(255, Math.round(lr + dr * poreRatio)));
-          outData[i + 1] = Math.max(0, Math.min(255, Math.round(lg + dg * poreRatio)));
-          outData[i + 2] = Math.max(0, Math.min(255, Math.round(lb + db * poreRatio)));
-        }
-        outData[i + 3] = origData[i + 3];
-      }
-
-      sCtx.putImageData(outImg, 0, 0);
-    } catch (e) {
-      // Fallback if security/memory issue
-      sCtx.drawImage(lfCanvas, 0, 0);
-    }
+    // Retain 22% natural fine grain & skin pores so skin looks authentic, not plastic
+    sCtx.filter = 'none';
+    sCtx.globalAlpha = 0.22;
+    sCtx.drawImage(currentWorkingImage, 0, 0);
+    sCtx.restore();
   }
 
   function drawSkinSmoothDab(x, y) {
@@ -2630,7 +2625,545 @@
   }
 
   // ==========================================
-  // 8. Hold-to-Compare Original Photo
+  // 7. Tool 7: Canva Frame (Aspect Ratios + InShot Blur/Color BG)
+  // ==========================================
+  const canvasRatioRow = document.getElementById('canvasRatioRow');
+  const btnCanvasBgBlur = document.getElementById('btnCanvasBgBlur');
+  const btnCanvasBgColor = document.getElementById('btnCanvasBgColor');
+  const canvasBlurControls = document.getElementById('canvasBlurControls');
+  const canvasColorControls = document.getElementById('canvasColorControls');
+  const canvasBlurSlider = document.getElementById('canvasBlurSlider');
+  const canvasBlurVal = document.getElementById('canvasBlurVal');
+  const canvasFitScaleSlider = document.getElementById('canvasFitScaleSlider');
+  const canvasFitScaleVal = document.getElementById('canvasFitScaleVal');
+  const canvasCustomColorInput = document.getElementById('canvasCustomColorInput');
+  const btnApplyCanvas = document.getElementById('btnApplyCanvas');
+  const btnCancelCanvas = document.getElementById('btnCancelCanvas');
+  const btnSaveImageCanvas = document.getElementById('btnSaveImageCanvas');
+
+  function getTargetAspectRatio(ratioStr, imgW, imgH) {
+    if (ratioStr === '1:1') return 1.0;
+    if (ratioStr === '4:5') return 4 / 5;
+    if (ratioStr === '9:16') return 9 / 16;
+    if (ratioStr === '16:9') return 16 / 9;
+    if (ratioStr === '3:4') return 3 / 4;
+    if (ratioStr === '4:3') return 4 / 3;
+    if (ratioStr === '2:3') return 2 / 3;
+    return imgW / imgH; // 'orig'
+  }
+
+  function renderLiveCanvasFrame() {
+    if (!currentWorkingImage) return;
+
+    const imgW = currentWorkingImage.width;
+    const imgH = currentWorkingImage.height;
+    const imgAspect = imgW / imgH;
+    const targetAspect = getTargetAspectRatio(canvasRatio, imgW, imgH);
+
+    // Compute frame canvas size preserving maximum source resolution
+    let frameW, frameH;
+    if (imgAspect > targetAspect) {
+      frameW = imgW;
+      frameH = Math.round(imgW / targetAspect);
+    } else {
+      frameH = imgH;
+      frameW = Math.round(imgH * targetAspect);
+    }
+
+    if (baseCanvas.width !== frameW || baseCanvas.height !== frameH) {
+      baseCanvas.width = frameW;
+      baseCanvas.height = frameH;
+      fitCanvasToCurrentViewport();
+    }
+
+    baseCtx.clearRect(0, 0, frameW, frameH);
+
+    // 1. Draw Background: Photo Blur or Solid Color
+    if (canvasBgType === 'blur') {
+      baseCtx.save();
+      // Calculate cover dimensions for background blur
+      let bgDrawW, bgDrawH;
+      if (imgAspect > targetAspect) {
+        bgDrawH = frameH * 1.08;
+        bgDrawW = bgDrawH * imgAspect;
+      } else {
+        bgDrawW = frameW * 1.08;
+        bgDrawH = bgDrawW / imgAspect;
+      }
+      const bgX = (frameW - bgDrawW) / 2;
+      const bgY = (frameH - bgDrawH) / 2;
+
+      baseCtx.filter = `blur(${canvasBlurIntensity}px)`;
+      baseCtx.drawImage(currentWorkingImage, bgX, bgY, bgDrawW, bgDrawH);
+      baseCtx.filter = 'none';
+
+      // Subtle rich contrast vignette overlay
+      baseCtx.fillStyle = 'rgba(0, 0, 0, 0.14)';
+      baseCtx.fillRect(0, 0, frameW, frameH);
+      baseCtx.restore();
+    } else {
+      baseCtx.save();
+      baseCtx.fillStyle = canvasSolidColor;
+      baseCtx.fillRect(0, 0, frameW, frameH);
+      baseCtx.restore();
+    }
+
+    // 2. Draw Framed Photo at user-defined scale
+    const baseFitScale = Math.min(frameW / imgW, frameH / imgH) * canvasFitScale;
+    const fgW = Math.round(imgW * baseFitScale);
+    const fgH = Math.round(imgH * baseFitScale);
+    const fgX = Math.round((frameW - fgW) / 2);
+    const fgY = Math.round((frameH - fgH) / 2);
+
+    baseCtx.save();
+    // Elegant soft studio shadow under the framed photo
+    baseCtx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+    baseCtx.shadowBlur = Math.round(24 * (frameW / 1200));
+    baseCtx.shadowOffsetY = Math.round(8 * (frameH / 1200));
+    baseCtx.drawImage(currentWorkingImage, fgX, fgY, fgW, fgH);
+    baseCtx.restore();
+  }
+
+  if (canvasRatioRow) {
+    canvasRatioRow.addEventListener('click', (e) => {
+      const chip = e.target.closest('.preset-chip');
+      if (!chip) return;
+      canvasRatioRow.querySelectorAll('.preset-chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      canvasRatio = chip.dataset.canvasRatio;
+      renderLiveCanvasFrame();
+    });
+  }
+
+  if (btnCanvasBgBlur && btnCanvasBgColor) {
+    btnCanvasBgBlur.addEventListener('click', () => {
+      canvasBgType = 'blur';
+      btnCanvasBgBlur.classList.add('active');
+      btnCanvasBgColor.classList.remove('active');
+      if (canvasBlurControls) canvasBlurControls.classList.remove('hidden');
+      if (canvasColorControls) canvasColorControls.classList.add('hidden');
+      renderLiveCanvasFrame();
+    });
+
+    btnCanvasBgColor.addEventListener('click', () => {
+      canvasBgType = 'color';
+      btnCanvasBgColor.classList.add('active');
+      btnCanvasBgBlur.classList.remove('active');
+      if (canvasColorControls) canvasColorControls.classList.remove('hidden');
+      if (canvasBlurControls) canvasBlurControls.classList.add('hidden');
+      renderLiveCanvasFrame();
+    });
+  }
+
+  if (canvasBlurSlider) {
+    canvasBlurSlider.addEventListener('input', (e) => {
+      canvasBlurIntensity = parseInt(e.target.value, 10);
+      let desc = 'Medium';
+      if (canvasBlurIntensity <= 15) desc = 'Soft';
+      else if (canvasBlurIntensity >= 45) desc = 'Deep Bokeh';
+      if (canvasBlurVal) canvasBlurVal.textContent = `${canvasBlurIntensity}px (${desc})`;
+      renderLiveCanvasFrame();
+    });
+  }
+
+  if (canvasFitScaleSlider) {
+    canvasFitScaleSlider.addEventListener('input', (e) => {
+      canvasFitScale = parseInt(e.target.value, 10) / 100.0;
+      const pct = Math.round(canvasFitScale * 100);
+      if (canvasFitScaleVal) canvasFitScaleVal.textContent = pct === 100 ? '100% (Full Fit)' : `${pct}% (Framed)`;
+      renderLiveCanvasFrame();
+    });
+  }
+
+  const canvasPaletteChips = document.querySelectorAll('#canvasColorControls .color-swatch-chip');
+  canvasPaletteChips.forEach(chip => {
+    chip.addEventListener('click', () => {
+      canvasPaletteChips.forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      canvasSolidColor = chip.dataset.color;
+      renderLiveCanvasFrame();
+    });
+  });
+
+  if (canvasCustomColorInput) {
+    canvasCustomColorInput.addEventListener('input', (e) => {
+      canvasPaletteChips.forEach(c => c.classList.remove('active'));
+      canvasSolidColor = e.target.value;
+      renderLiveCanvasFrame();
+    });
+  }
+
+  if (btnApplyCanvas) {
+    btnApplyCanvas.addEventListener('click', () => {
+      if (!currentWorkingImage) return;
+      saveImageState();
+
+      const baked = document.createElement('canvas');
+      baked.width = baseCanvas.width;
+      baked.height = baseCanvas.height;
+      baked.getContext('2d').drawImage(baseCanvas, 0, 0);
+      currentWorkingImage = baked;
+
+      cachedSubjectCutout = null;
+      updateUndoState();
+      switchStudioTool('erase');
+      alert('✓ Canvas frame applied successfully!');
+    });
+  }
+
+  if (btnCancelCanvas) {
+    btnCancelCanvas.addEventListener('click', () => {
+      if (currentWorkingImage) {
+        baseCanvas.width = currentWorkingImage.width;
+        baseCanvas.height = currentWorkingImage.height;
+        baseCtx.drawImage(currentWorkingImage, 0, 0);
+        fitCanvasToCurrentViewport();
+      }
+      switchStudioTool('erase');
+    });
+  }
+
+  if (btnSaveImageCanvas) btnSaveImageCanvas.addEventListener('click', exportImage);
+
+  // ==========================================
+  // 8. Tool 8: Crop & Straighten
+  // ==========================================
+  const cropRatioRow = document.getElementById('cropRatioRow');
+  const cropBox = document.getElementById('cropBox');
+  const cropBdTop = document.getElementById('cropBdTop');
+  const cropBdBottom = document.getElementById('cropBdBottom');
+  const cropBdLeft = document.getElementById('cropBdLeft');
+  const cropBdRight = document.getElementById('cropBdRight');
+  const btnCropRotateLeft = document.getElementById('btnCropRotateLeft');
+  const btnCropRotateRight = document.getElementById('btnCropRotateRight');
+  const btnCropFlipH = document.getElementById('btnCropFlipH');
+  const btnApplyCrop = document.getElementById('btnApplyCrop');
+  const btnCancelCrop = document.getElementById('btnCancelCrop');
+  const btnSaveImageCrop = document.getElementById('btnSaveImageCrop');
+
+  function initCropOverlay() {
+    if (!currentWorkingImage || !cropOverlayLayer) return;
+    cropOverlayLayer.classList.remove('hidden');
+
+    cropOverlayLayer.style.width = `${displayWidth}px`;
+    cropOverlayLayer.style.height = `${displayHeight}px`;
+
+    // Initialize crop box to centered rectangle based on current ratio
+    applyCropRatioConstraint(cropRatio);
+  }
+
+  function applyCropRatioConstraint(ratioKey) {
+    cropRatio = ratioKey;
+    let targetW, targetH;
+
+    if (ratioKey === 'free') {
+      targetW = Math.round(displayWidth * 0.90);
+      targetH = Math.round(displayHeight * 0.90);
+    } else {
+      let r = 1.0;
+      if (ratioKey === 'orig') r = displayWidth / displayHeight;
+      else if (ratioKey === '1:1') r = 1.0;
+      else if (ratioKey === '4:5') r = 4 / 5;
+      else if (ratioKey === '9:16') r = 9 / 16;
+      else if (ratioKey === '16:9') r = 16 / 9;
+      else if (ratioKey === '3:4') r = 3 / 4;
+      else if (ratioKey === '4:3') r = 4 / 3;
+
+      const maxW = displayWidth * 0.92;
+      const maxH = displayHeight * 0.92;
+
+      if (maxW / maxH > r) {
+        targetH = maxH;
+        targetW = targetH * r;
+      } else {
+        targetW = maxW;
+        targetH = targetW / r;
+      }
+    }
+
+    targetW = Math.max(40, Math.min(displayWidth, Math.round(targetW)));
+    targetH = Math.max(40, Math.min(displayHeight, Math.round(targetH)));
+
+    cropRect = {
+      x: Math.round((displayWidth - targetW) / 2),
+      y: Math.round((displayHeight - targetH) / 2),
+      w: targetW,
+      h: targetH
+    };
+
+    updateCropOverlayUI();
+  }
+
+  function updateCropOverlayUI() {
+    if (!cropBox) return;
+
+    // Clamp cropRect within viewport
+    cropRect.x = Math.max(0, Math.min(displayWidth - cropRect.w, cropRect.x));
+    cropRect.y = Math.max(0, Math.min(displayHeight - cropRect.h, cropRect.y));
+    cropRect.w = Math.max(40, Math.min(displayWidth, cropRect.w));
+    cropRect.h = Math.max(40, Math.min(displayHeight, cropRect.h));
+
+    cropBox.style.left = `${cropRect.x}px`;
+    cropBox.style.top = `${cropRect.y}px`;
+    cropBox.style.width = `${cropRect.w}px`;
+    cropBox.style.height = `${cropRect.h}px`;
+
+    // Update 4 backdrop panels
+    if (cropBdTop) {
+      cropBdTop.style.top = '0px';
+      cropBdTop.style.left = '0px';
+      cropBdTop.style.width = `${displayWidth}px`;
+      cropBdTop.style.height = `${cropRect.y}px`;
+    }
+    if (cropBdBottom) {
+      cropBdBottom.style.top = `${cropRect.y + cropRect.h}px`;
+      cropBdBottom.style.left = '0px';
+      cropBdBottom.style.width = `${displayWidth}px`;
+      cropBdBottom.style.height = `${Math.max(0, displayHeight - (cropRect.y + cropRect.h))}px`;
+    }
+    if (cropBdLeft) {
+      cropBdLeft.style.top = `${cropRect.y}px`;
+      cropBdLeft.style.left = '0px';
+      cropBdLeft.style.width = `${cropRect.x}px`;
+      cropBdLeft.style.height = `${cropRect.h}px`;
+    }
+    if (cropBdRight) {
+      cropBdRight.style.top = `${cropRect.y}px`;
+      cropBdRight.style.left = `${cropRect.x + cropRect.w}px`;
+      cropBdRight.style.width = `${Math.max(0, displayWidth - (cropRect.x + cropRect.w))}px`;
+      cropBdRight.style.height = `${cropRect.h}px`;
+    }
+  }
+
+  if (cropRatioRow) {
+    cropRatioRow.addEventListener('click', (e) => {
+      const chip = e.target.closest('.preset-chip');
+      if (!chip) return;
+      cropRatioRow.querySelectorAll('.preset-chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      applyCropRatioConstraint(chip.dataset.cropRatio);
+    });
+  }
+
+  // Interactive Touch & Mouse Drag on Crop Box & Handles
+  function handleCropDragStart(clientX, clientY, target) {
+    const handleEl = target.closest('.crop-handle');
+    if (handleEl) {
+      activeCropHandle = handleEl.dataset.handle;
+    } else if (target.closest('.crop-box')) {
+      activeCropHandle = 'box';
+    } else {
+      return;
+    }
+
+    isDraggingCrop = true;
+    cropDragStart = {
+      mouseX: clientX,
+      mouseY: clientY,
+      startRect: { ...cropRect }
+    };
+  }
+
+  function handleCropDragMove(clientX, clientY) {
+    if (!isDraggingCrop || !cropDragStart.startRect) return;
+
+    const dx = (clientX - cropDragStart.mouseX) / scale;
+    const dy = (clientY - cropDragStart.mouseY) / scale;
+    const s = cropDragStart.startRect;
+
+    if (activeCropHandle === 'box') {
+      cropRect.x = Math.max(0, Math.min(displayWidth - s.w, s.x + dx));
+      cropRect.y = Math.max(0, Math.min(displayHeight - s.h, s.y + dy));
+    } else {
+      let newX = s.x;
+      let newY = s.y;
+      let newW = s.w;
+      let newH = s.h;
+
+      if (activeCropHandle.includes('r')) newW = Math.max(40, s.w + dx);
+      if (activeCropHandle.includes('b')) newH = Math.max(40, s.h + dy);
+      if (activeCropHandle.includes('l')) {
+        const potentialW = Math.max(40, s.w - dx);
+        newX = s.x + (s.w - potentialW);
+        newW = potentialW;
+      }
+      if (activeCropHandle.includes('t')) {
+        const potentialH = Math.max(40, s.h - dy);
+        newY = s.y + (s.h - potentialH);
+        newH = potentialH;
+      }
+
+      // If a fixed aspect ratio is selected, maintain it
+      if (cropRatio !== 'free') {
+        let r = 1.0;
+        if (cropRatio === 'orig') r = displayWidth / displayHeight;
+        else if (cropRatio === '1:1') r = 1.0;
+        else if (cropRatio === '4:5') r = 4 / 5;
+        else if (cropRatio === '9:16') r = 9 / 16;
+        else if (cropRatio === '16:9') r = 16 / 9;
+        else if (cropRatio === '3:4') r = 3 / 4;
+        else if (cropRatio === '4:3') r = 4 / 3;
+
+        if (activeCropHandle === 'l' || activeCropHandle === 'r') {
+          newH = Math.round(newW / r);
+        } else {
+          newW = Math.round(newH * r);
+        }
+      }
+
+      cropRect.x = Math.max(0, newX);
+      cropRect.y = Math.max(0, newY);
+      cropRect.w = Math.min(displayWidth - cropRect.x, newW);
+      cropRect.h = Math.min(displayHeight - cropRect.y, newH);
+    }
+
+    updateCropOverlayUI();
+  }
+
+  function handleCropDragEnd() {
+    isDraggingCrop = false;
+    activeCropHandle = null;
+  }
+
+  if (cropOverlayLayer) {
+    cropOverlayLayer.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) {
+        e.preventDefault();
+        handleCropDragStart(e.touches[0].clientX, e.touches[0].clientY, e.target);
+      }
+    }, { passive: false });
+
+    window.addEventListener('touchmove', (e) => {
+      if (isDraggingCrop && e.touches.length === 1) {
+        e.preventDefault();
+        handleCropDragMove(e.touches[0].clientX, e.touches[0].clientY);
+      }
+    }, { passive: false });
+
+    window.addEventListener('touchend', () => {
+      if (isDraggingCrop) handleCropDragEnd();
+    });
+
+    cropOverlayLayer.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      handleCropDragStart(e.clientX, e.clientY, e.target);
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (isDraggingCrop) {
+        handleCropDragMove(e.clientX, e.clientY);
+      }
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (isDraggingCrop) handleCropDragEnd();
+    });
+  }
+
+  // Quick Rotate & Flip Helpers
+  function transformWorkingImage(transformFn) {
+    if (!currentWorkingImage) return;
+    saveImageState();
+
+    const canvas = document.createElement('canvas');
+    transformFn(canvas);
+    currentWorkingImage = canvas;
+
+    baseCanvas.width = canvas.width;
+    baseCanvas.height = canvas.height;
+    baseCtx.drawImage(canvas, 0, 0);
+
+    cachedSubjectCutout = null;
+    fitCanvasToCurrentViewport();
+    if (activeTool === 'crop') applyCropRatioConstraint(cropRatio);
+    updateUndoState();
+  }
+
+  if (btnCropRotateLeft) {
+    btnCropRotateLeft.addEventListener('click', () => {
+      transformWorkingImage((c) => {
+        c.width = currentWorkingImage.height;
+        c.height = currentWorkingImage.width;
+        const ctx = c.getContext('2d');
+        ctx.translate(0, c.height);
+        ctx.rotate(-Math.PI / 2);
+        ctx.drawImage(currentWorkingImage, 0, 0);
+      });
+    });
+  }
+
+  if (btnCropRotateRight) {
+    btnCropRotateRight.addEventListener('click', () => {
+      transformWorkingImage((c) => {
+        c.width = currentWorkingImage.height;
+        c.height = currentWorkingImage.width;
+        const ctx = c.getContext('2d');
+        ctx.translate(c.width, 0);
+        ctx.rotate(Math.PI / 2);
+        ctx.drawImage(currentWorkingImage, 0, 0);
+      });
+    });
+  }
+
+  if (btnCropFlipH) {
+    btnCropFlipH.addEventListener('click', () => {
+      transformWorkingImage((c) => {
+        c.width = currentWorkingImage.width;
+        c.height = currentWorkingImage.height;
+        const ctx = c.getContext('2d');
+        ctx.translate(c.width, 0);
+        ctx.scale(-1, 1);
+        ctx.drawImage(currentWorkingImage, 0, 0);
+      });
+    });
+  }
+
+  if (btnApplyCrop) {
+    btnApplyCrop.addEventListener('click', () => {
+      if (!currentWorkingImage || !cropRect.w || !cropRect.h) return;
+
+      const scaleX = currentWorkingImage.width / displayWidth;
+      const scaleY = currentWorkingImage.height / displayHeight;
+
+      const cropX = Math.max(0, Math.round(cropRect.x * scaleX));
+      const cropY = Math.max(0, Math.round(cropRect.y * scaleY));
+      const cropW = Math.max(10, Math.min(currentWorkingImage.width - cropX, Math.round(cropRect.w * scaleX)));
+      const cropH = Math.max(10, Math.min(currentWorkingImage.height - cropY, Math.round(cropRect.h * scaleY)));
+
+      saveImageState();
+
+      const croppedCanvas = document.createElement('canvas');
+      croppedCanvas.width = cropW;
+      croppedCanvas.height = cropH;
+      const ctx = croppedCanvas.getContext('2d');
+      ctx.drawImage(currentWorkingImage, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+      currentWorkingImage = croppedCanvas;
+      baseCanvas.width = cropW;
+      baseCanvas.height = cropH;
+      baseCtx.drawImage(croppedCanvas, 0, 0);
+
+      cachedSubjectCutout = null;
+      if (cropOverlayLayer) cropOverlayLayer.classList.add('hidden');
+
+      fitCanvasToCurrentViewport();
+      updateUndoState();
+      switchStudioTool('erase');
+      alert('✓ Photo cropped successfully!');
+    });
+  }
+
+  if (btnCancelCrop) {
+    btnCancelCrop.addEventListener('click', () => {
+      if (cropOverlayLayer) cropOverlayLayer.classList.add('hidden');
+      switchStudioTool('erase');
+    });
+  }
+
+  if (btnSaveImageCrop) btnSaveImageCrop.addEventListener('click', exportImage);
+
+  // ==========================================
+  // 9. Hold-to-Compare Original Photo
   // ==========================================
   function showOriginal() {
     if (!pristineOriginalImage) return;
@@ -2652,7 +3185,7 @@
   window.addEventListener('touchend', () => { if (isComparing) showEdited(); });
 
   // ==========================================
-  // 9. Save Clean Image & Trigger Success Modal
+  // 10. Save Clean Image & Trigger Success Modal
   // ==========================================
   function exportImage() {
     if (!currentWorkingImage) return;

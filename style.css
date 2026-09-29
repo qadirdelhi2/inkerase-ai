@@ -1954,3 +1954,331 @@ body {
 .hidden {
   display: none !important;
 }
+
+/* ==========================================
+   Canva Frame & Crop Tools
+   ========================================== */
+.preset-scroll-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 4px 2px;
+  scrollbar-width: none;
+}
+
+.preset-scroll-row::-webkit-scrollbar {
+  display: none;
+}
+
+.preset-chip {
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  white-space: nowrap;
+}
+
+.preset-chip:active {
+  transform: scale(0.95);
+}
+
+.preset-chip.active {
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  border-color: #818cf8;
+  color: #ffffff;
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.4);
+}
+
+.bg-mode-segmented {
+  display: flex;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 4px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.bg-mode-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.bg-mode-btn.active {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.canvas-subpanel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.palette-scroll-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  overflow-x: auto;
+  padding: 6px 2px;
+  scrollbar-width: none;
+}
+
+.palette-scroll-row::-webkit-scrollbar {
+  display: none;
+}
+
+.color-swatch-chip {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  cursor: pointer;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  border: 2px solid transparent;
+  transition: transform 0.18s ease, border-color 0.18s ease;
+}
+
+.color-swatch-chip:active {
+  transform: scale(0.92);
+}
+
+.color-swatch-chip.active {
+  transform: scale(1.15);
+  border-color: #ffffff;
+  box-shadow: 0 0 0 2px #6366f1, 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+.color-swatch-picker {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  border: 1.5px dashed rgba(255, 255, 255, 0.4);
+  position: relative;
+  overflow: hidden;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+.color-swatch-picker input[type="color"] {
+  position: absolute;
+  top: 0;
+  left: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+
+/* Crop Transform Toolbar */
+.crop-transform-bar {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 2px;
+}
+
+.crop-tool-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
+  padding: 8px 14px;
+  border-radius: 12px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.crop-tool-btn:active {
+  transform: scale(0.95);
+  background: rgba(99, 102, 241, 0.2);
+}
+
+/* Interactive Crop Overlay Layer */
+.crop-overlay-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 60;
+  overflow: hidden;
+}
+
+.crop-backdrop {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.65);
+  pointer-events: auto;
+}
+
+.crop-box {
+  position: absolute;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), inset 0 0 20px rgba(0, 0, 0, 0.25);
+  pointer-events: auto;
+  cursor: move;
+  touch-action: none;
+}
+
+.crop-grid-lines {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.crop-grid-h, .crop-grid-v {
+  position: absolute;
+  border-color: rgba(255, 255, 255, 0.35);
+  border-style: dashed;
+}
+
+.crop-grid-h {
+  left: 0;
+  right: 0;
+  border-top-width: 1px;
+}
+
+.crop-grid-h.h1 { top: 33.333%; }
+.crop-grid-h.h2 { top: 66.666%; }
+
+.crop-grid-v {
+  top: 0;
+  bottom: 0;
+  border-left-width: 1px;
+}
+
+.crop-grid-v.v1 { left: 33.333%; }
+.crop-grid-v.v2 { left: 66.666%; }
+
+/* Crop Handles */
+.crop-handle {
+  position: absolute;
+  background: #ffffff;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.crop-handle::after {
+  content: '';
+  position: absolute;
+  top: -12px;
+  left: -12px;
+  right: -12px;
+  bottom: -12px;
+}
+
+/* Corner handles: prominent L-brackets / corner blocks */
+.crop-handle.handle-tl {
+  top: -2px;
+  left: -2px;
+  width: 16px;
+  height: 16px;
+  border-top: 3.5px solid #38bdf8;
+  border-left: 3.5px solid #38bdf8;
+  background: transparent;
+  cursor: nwse-resize;
+}
+
+.crop-handle.handle-tr {
+  top: -2px;
+  right: -2px;
+  width: 16px;
+  height: 16px;
+  border-top: 3.5px solid #38bdf8;
+  border-right: 3.5px solid #38bdf8;
+  background: transparent;
+  cursor: nesw-resize;
+}
+
+.crop-handle.handle-bl {
+  bottom: -2px;
+  left: -2px;
+  width: 16px;
+  height: 16px;
+  border-bottom: 3.5px solid #38bdf8;
+  border-left: 3.5px solid #38bdf8;
+  background: transparent;
+  cursor: nesw-resize;
+}
+
+.crop-handle.handle-br {
+  bottom: -2px;
+  right: -2px;
+  width: 16px;
+  height: 16px;
+  border-bottom: 3.5px solid #38bdf8;
+  border-right: 3.5px solid #38bdf8;
+  background: transparent;
+  cursor: nwse-resize;
+}
+
+/* Edge handles */
+.crop-handle.handle-t {
+  top: -3px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 28px;
+  height: 4.5px;
+  border-radius: 3px;
+  cursor: ns-resize;
+}
+
+.crop-handle.handle-b {
+  bottom: -3px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 28px;
+  height: 4.5px;
+  border-radius: 3px;
+  cursor: ns-resize;
+}
+
+.crop-handle.handle-l {
+  left: -3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4.5px;
+  height: 28px;
+  border-radius: 3px;
+  cursor: ew-resize;
+}
+
+.crop-handle.handle-r {
+  right: -3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4.5px;
+  height: 28px;
+  border-radius: 3px;
+  cursor: ew-resize;
+}
