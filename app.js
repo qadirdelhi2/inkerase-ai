@@ -249,7 +249,14 @@
   let canvasBgType = 'blur';          // 'blur' | 'color'
   let canvasBlurIntensity = 30;       // 5 to 65px
   let canvasSolidColor = '#FFFFFF';
-  let canvasFitScale = 0.85;          // 0.40 to 1.0
+  let canvasFitScale = 0.85;          // 0.20 to 3.0
+  let canvasOffsetX = 0;              // Drag shift X inside frame
+  let canvasOffsetY = 0;              // Drag shift Y inside frame
+  let isCanvaDragging = false;
+  let canvaDragStartX = 0;
+  let canvaDragStartY = 0;
+  let isCanvaPinching = false;
+  let canvaPinchDist = 0;
 
   // Tool 8: Crop & Straighten State
   let cropRatio = 'free';             // 'free' | 'orig' | '1:1' | '4:5' | '9:16' | '16:9' | '3:4' | '4:3'
@@ -677,6 +684,20 @@
         currentStrokePoints = [];
       }
 
+      if (activeTool === 'canvas') {
+        if (e.touches.length >= 2) {
+          isCanvaPinching = true;
+          isCanvaDragging = false;
+          const t1 = e.touches[0];
+          const t2 = e.touches[1];
+          canvaPinchDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+          prevMidX = (t1.clientX + t2.clientX) / 2;
+          prevMidY = (t1.clientY + t2.clientY) / 2;
+          e.preventDefault();
+          return;
+        }
+      }
+
       isPinching = true;
       cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
 
@@ -690,6 +711,15 @@
     }
 
     if (e.touches.length === 1) {
+      if (activeTool === 'canvas') {
+        isCanvaDragging = true;
+        isCanvaPinching = false;
+        canvaDragStartX = e.touches[0].clientX;
+        canvaDragStartY = e.touches[0].clientY;
+        e.preventDefault();
+        return;
+      }
+
       // If we just finished a 2-finger gesture within the last 300ms, ignore trailing release touches
       if (Date.now() - lastPinchEndTime < 300 || isPinching) {
         e.preventDefault();
@@ -705,6 +735,47 @@
   }, { passive: false });
 
   canvasViewport.addEventListener('touchmove', (e) => {
+    if (activeTool === 'canvas') {
+      if (isCanvaPinching && e.touches.length >= 2) {
+        e.preventDefault();
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        const currentDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        const currentMidX = (t1.clientX + t2.clientX) / 2;
+        const currentMidY = (t1.clientY + t2.clientY) / 2;
+
+        if (canvaPinchDist > 5 && currentDist > 5) {
+          const ratio = currentDist / canvaPinchDist;
+          canvasFitScale = Math.min(3.0, Math.max(0.20, canvasFitScale * ratio));
+          if (canvasFitScaleSlider) canvasFitScaleSlider.value = Math.round(canvasFitScale * 100);
+          if (canvasFitScaleVal) {
+            const pct = Math.round(canvasFitScale * 100);
+            canvasFitScaleVal.textContent = pct === 100 ? '100% (Full Fit)' : `${pct}% (Framed)`;
+          }
+
+          const sf = getScaleFactor();
+          canvasOffsetX += (currentMidX - prevMidX) * sf;
+          canvasOffsetY += (currentMidY - prevMidY) * sf;
+          prevMidX = currentMidX;
+          prevMidY = currentMidY;
+          canvaPinchDist = currentDist;
+          renderLiveCanvasFrame();
+        }
+        return;
+      } else if (isCanvaDragging && e.touches.length === 1) {
+        e.preventDefault();
+        const clientX = e.touches[0].clientX;
+        const clientY = e.touches[0].clientY;
+        const sf = getScaleFactor();
+        canvasOffsetX += (clientX - canvaDragStartX) * sf;
+        canvasOffsetY += (clientY - canvaDragStartY) * sf;
+        canvaDragStartX = clientX;
+        canvaDragStartY = clientY;
+        renderLiveCanvasFrame();
+        return;
+      }
+    }
+
     if (e.touches.length >= 2 || isPinching) {
       e.preventDefault();
       if (pipMagnifier) pipMagnifier.classList.add('hidden');
@@ -768,6 +839,19 @@
   }, { passive: false });
 
   canvasViewport.addEventListener('touchend', (e) => {
+    if (activeTool === 'canvas') {
+      if (e.touches.length === 0) {
+        isCanvaDragging = false;
+        isCanvaPinching = false;
+      } else if (e.touches.length === 1 && isCanvaPinching) {
+        isCanvaPinching = false;
+        isCanvaDragging = true;
+        canvaDragStartX = e.touches[0].clientX;
+        canvaDragStartY = e.touches[0].clientY;
+      }
+      return;
+    }
+
     if (isPinching) {
       if (e.touches.length === 0) {
         isPinching = false;
@@ -794,16 +878,35 @@
 
   // Desktop Mouse Events
   canvasWrapper.addEventListener('mousedown', (e) => {
+    if (activeTool === 'canvas' && e.button === 0) {
+      isCanvaDragging = true;
+      canvaDragStartX = e.clientX;
+      canvaDragStartY = e.clientY;
+      return;
+    }
     if (e.button === 0) {
       startInteraction(e.clientX, e.clientY);
     }
   });
 
   window.addEventListener('mousemove', (e) => {
+    if (activeTool === 'canvas' && isCanvaDragging) {
+      const sf = getScaleFactor();
+      canvasOffsetX += (e.clientX - canvaDragStartX) * sf;
+      canvasOffsetY += (e.clientY - canvaDragStartY) * sf;
+      canvaDragStartX = e.clientX;
+      canvaDragStartY = e.clientY;
+      renderLiveCanvasFrame();
+      return;
+    }
     moveInteraction(e.clientX, e.clientY);
   });
 
   window.addEventListener('mouseup', () => {
+    if (activeTool === 'canvas') {
+      isCanvaDragging = false;
+      return;
+    }
     stopInteraction();
   });
 
@@ -832,25 +935,7 @@
       return;
     }
 
-    const vpRect = canvasViewport.getBoundingClientRect();
-    const touchX = clientX - vpRect.left;
-    const touchY = clientY - vpRect.top;
-
-    // Position circular loupe ~70px offset above touch point
-    let loupeX = touchX;
-    let loupeY = touchY - 70;
-
-    // If touching near the top of viewport, flip below finger so it's not off-screen
-    if (loupeY < 75) {
-      loupeY = touchY + 125;
-    }
-
-    // Clamp horizontally to stay completely inside viewport
-    const halfSize = 55;
-    loupeX = Math.max(halfSize + 8, Math.min(vpRect.width - halfSize - 8, loupeX));
-
-    pipMagnifier.style.left = `${loupeX}px`;
-    pipMagnifier.style.top = `${loupeY}px`;
+    // Keep square PiP fixed in top-left corner (no moving, no vectors, no text)
     pipMagnifier.classList.remove('hidden');
 
     // True Screen-Relative 2.0x Optical Magnification
@@ -869,7 +954,7 @@
     const sx = canvasX - srcSize / 2;
     const sy = canvasY - srcSize / 2;
 
-    // 1. Draw magnified base photo under finger
+    // 1. Draw pristine magnified base photo under finger
     pipCtx.drawImage(baseCanvas, sx, sy, srcSize, srcSize, 0, 0, pipW, pipH);
 
     // 2. If tattoo erase, draw mask with 45% transparency so photo is ALWAYS visible!
@@ -879,31 +964,6 @@
       pipCtx.drawImage(maskCanvas, sx, sy, srcSize, srcSize, 0, 0, pipW, pipH);
       pipCtx.restore();
     }
-
-    // 3. Draw targeting reticle ring showing brush boundary at 2.0x zoom
-    const sf = getScaleFactor();
-    const screenRadius = radius * sf * ((canvasRect.width || 1) / baseCanvas.width);
-    const reticleRadius = Math.max(3, screenRadius * 2.0);
-
-    pipCtx.save();
-    pipCtx.beginPath();
-    pipCtx.arc(pipW / 2, pipH / 2, reticleRadius, 0, Math.PI * 2);
-    if (activeTool === 'skinsmooth') {
-      pipCtx.strokeStyle = 'rgba(251, 191, 36, 0.95)';
-    } else if (activeTool === 'brushblur') {
-      pipCtx.strokeStyle = 'rgba(56, 189, 248, 0.95)';
-    } else {
-      pipCtx.strokeStyle = 'rgba(255, 46, 99, 0.95)';
-    }
-    pipCtx.lineWidth = 2.0;
-    pipCtx.stroke();
-
-    // Center precision dot
-    pipCtx.beginPath();
-    pipCtx.arc(pipW / 2, pipH / 2, 2.2, 0, Math.PI * 2);
-    pipCtx.fillStyle = pipCtx.strokeStyle;
-    pipCtx.fill();
-    pipCtx.restore();
   }
 
   let pipRafId = null;
@@ -1025,10 +1085,14 @@
 
   function drawCursor(x, y, radius, isFast = false) {
     cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
-    if (activeTool === 'bgblur' || activeTool === 'adjust' || activeTool === 'text') return;
+    if (activeTool === 'bgblur' || activeTool === 'adjust' || activeTool === 'text' || activeTool === 'canvas' || activeTool === 'crop') return;
 
-    const sf = getScaleFactor();
-    const canvasR = radius * sf;
+    const rect = baseCanvas.getBoundingClientRect();
+    const scaleX = baseCanvas.width / (rect.width || 1);
+    const scaleY = baseCanvas.height / (rect.height || 1);
+    const rX = radius * scaleX;
+    const rY = radius * scaleY;
+    const sf = (scaleX + scaleY) / 2;
 
     cursorCtx.save();
     if (!isFast) {
@@ -1036,9 +1100,9 @@
       cursorCtx.shadowBlur = 4 * sf;
     }
 
-    // Outer boundary ring
+    // Outer boundary ring - guaranteed 100% round circle on physical display
     cursorCtx.beginPath();
-    cursorCtx.arc(x, y, canvasR, 0, Math.PI * 2);
+    cursorCtx.ellipse(x, y, rX, rY, 0, 0, Math.PI * 2);
     if (activeTool === 'skinsmooth') {
       cursorCtx.strokeStyle = 'rgba(251, 191, 36, 1.0)';
     } else if (activeTool === 'brushblur') {
@@ -1049,18 +1113,19 @@
     cursorCtx.lineWidth = Math.max(2.5 * sf, 2);
     cursorCtx.stroke();
 
-    // Center precision dot
+    // Center precision dot (also perfectly round)
     cursorCtx.beginPath();
-    cursorCtx.arc(x, y, Math.max(2 * sf, 2), 0, Math.PI * 2);
+    cursorCtx.ellipse(x, y, Math.max(2 * scaleX, 2), Math.max(2 * scaleY, 2), 0, 0, Math.PI * 2);
     cursorCtx.fillStyle = cursorCtx.strokeStyle;
     cursorCtx.fill();
 
     // If blur brush or skin smooth, draw inner dotted circle showing feather core
     if (activeTool === 'brushblur' || activeTool === 'skinsmooth') {
       const featherVal = (activeTool === 'skinsmooth') ? skinSmoothFeather : manualBrushFeather;
-      const innerRadius = Math.max(1, canvasR * (1.0 - featherVal / 100.0));
+      const innerX = Math.max(1, rX * (1.0 - featherVal / 100.0));
+      const innerY = Math.max(1, rY * (1.0 - featherVal / 100.0));
       cursorCtx.beginPath();
-      cursorCtx.arc(x, y, innerRadius, 0, Math.PI * 2);
+      cursorCtx.ellipse(x, y, innerX, innerY, 0, 0, Math.PI * 2);
       cursorCtx.setLineDash([4 * sf, 4 * sf]);
       cursorCtx.strokeStyle = (activeTool === 'skinsmooth') ? 'rgba(251, 191, 36, 0.85)' : 'rgba(56, 189, 248, 0.85)';
       cursorCtx.lineWidth = Math.max(1.8 * sf, 1.8);
@@ -1147,7 +1212,7 @@
   function drawManualBlurDab(x, y) {
     if (!blurSourceCanvas) return;
     const sf = getScaleFactor();
-    const R = Math.max(4, manualBrushRadius * sf);
+    const R = Math.max(3, manualBrushRadius * sf);
     const D = Math.ceil(R * 2);
     if (D < 2) return;
 
@@ -1158,11 +1223,16 @@
       dabCtx.clearRect(0, 0, D, D);
     }
 
-    // 1. Draw blurred slice from blurSourceCanvas with translation
-    dabCtx.save();
-    dabCtx.translate(-(x - R), -(y - R));
-    dabCtx.drawImage(blurSourceCanvas, 0, 0);
-    dabCtx.restore();
+    // 1. Draw ONLY the tiny D x D slice from blurSourceCanvas (100x faster than full canvas draw)
+    const srcX = Math.max(0, Math.min(blurSourceCanvas.width - 1, Math.round(x - R)));
+    const srcY = Math.max(0, Math.min(blurSourceCanvas.height - 1, Math.round(y - R)));
+    const srcW = Math.min(D, blurSourceCanvas.width - srcX);
+    const srcH = Math.min(D, blurSourceCanvas.height - srcY);
+    if (srcW > 0 && srcH > 0) {
+      const dstX = Math.round(srcX - (x - R));
+      const dstY = Math.round(srcY - (y - R));
+      dabCtx.drawImage(blurSourceCanvas, srcX, srcY, srcW, srcH, dstX, dstY, srcW, srcH);
+    }
 
     // 2. Feather mask using radial gradient (destination-in)
     dabCtx.globalCompositeOperation = 'destination-in';
@@ -1174,18 +1244,18 @@
     dabCtx.fillRect(0, 0, D, D);
     dabCtx.globalCompositeOperation = 'source-over';
 
-    // 3. Composite feathered dab onto base canvas with rich smooth flow
+    // 3. Composite feathered dab onto base canvas with responsive smooth flow
     baseCtx.save();
     baseCtx.globalAlpha = 0.50;
-    baseCtx.drawImage(dabCanvas, x - R, y - R);
+    baseCtx.drawImage(dabCanvas, Math.round(x - R), Math.round(y - R));
     baseCtx.restore();
   }
 
   function drawManualBlurStroke(x1, y1, x2, y2) {
     const sf = getScaleFactor();
-    const R = Math.max(4, manualBrushRadius * sf);
+    const R = Math.max(3, manualBrushRadius * sf);
     const dist = Math.hypot(x2 - x1, y2 - y1);
-    const step = Math.max(2, R * 0.18);
+    const step = Math.max(2, R * 0.28);
     const steps = Math.ceil(dist / step);
 
     for (let i = 1; i <= steps; i++) {
@@ -1649,7 +1719,7 @@
   function drawSkinSmoothDab(x, y) {
     if (!smoothSourceCanvas) return;
     const sf = getScaleFactor();
-    const R = Math.max(4, skinSmoothRadius * sf);
+    const R = Math.max(3, skinSmoothRadius * sf);
     const D = Math.ceil(R * 2);
     if (D < 2) return;
 
@@ -1660,11 +1730,16 @@
       dabCtx.clearRect(0, 0, D, D);
     }
 
-    // 1. Draw smoothed slice from smoothSourceCanvas with translation
-    dabCtx.save();
-    dabCtx.translate(-(x - R), -(y - R));
-    dabCtx.drawImage(smoothSourceCanvas, 0, 0);
-    dabCtx.restore();
+    // 1. Draw ONLY the tiny D x D slice from smoothSourceCanvas (100x faster than full canvas draw)
+    const srcX = Math.max(0, Math.min(smoothSourceCanvas.width - 1, Math.round(x - R)));
+    const srcY = Math.max(0, Math.min(smoothSourceCanvas.height - 1, Math.round(y - R)));
+    const srcW = Math.min(D, smoothSourceCanvas.width - srcX);
+    const srcH = Math.min(D, smoothSourceCanvas.height - srcY);
+    if (srcW > 0 && srcH > 0) {
+      const dstX = Math.round(srcX - (x - R));
+      const dstY = Math.round(srcY - (y - R));
+      dabCtx.drawImage(smoothSourceCanvas, srcX, srcY, srcW, srcH, dstX, dstY, srcW, srcH);
+    }
 
     // 2. Feather mask using radial gradient (destination-in)
     dabCtx.globalCompositeOperation = 'destination-in';
@@ -1679,15 +1754,15 @@
     // 3. Composite feathered dab onto base canvas with responsive smooth flow
     baseCtx.save();
     baseCtx.globalAlpha = 0.50; // Responsive buildable flow for flawless skin blending
-    baseCtx.drawImage(dabCanvas, x - R, y - R);
+    baseCtx.drawImage(dabCanvas, Math.round(x - R), Math.round(y - R));
     baseCtx.restore();
   }
 
   function drawSkinSmoothStroke(x1, y1, x2, y2) {
     const sf = getScaleFactor();
-    const R = Math.max(4, skinSmoothRadius * sf);
+    const R = Math.max(3, skinSmoothRadius * sf);
     const dist = Math.hypot(x2 - x1, y2 - y1);
-    const step = Math.max(2, R * 0.18);
+    const step = Math.max(2, R * 0.28);
     const steps = Math.ceil(dist / step);
 
     for (let i = 1; i <= steps; i++) {
@@ -2708,12 +2783,12 @@
       baseCtx.restore();
     }
 
-    // 2. Draw Framed Photo at user-defined scale
+    // 2. Draw Framed Photo at user-defined scale and interactive shift offset
     const baseFitScale = Math.min(frameW / imgW, frameH / imgH) * canvasFitScale;
     const fgW = Math.round(imgW * baseFitScale);
     const fgH = Math.round(imgH * baseFitScale);
-    const fgX = Math.round((frameW - fgW) / 2);
-    const fgY = Math.round((frameH - fgH) / 2);
+    const fgX = Math.round((frameW - fgW) / 2 + canvasOffsetX);
+    const fgY = Math.round((frameH - fgH) / 2 + canvasOffsetY);
 
     baseCtx.save();
     // Elegant soft studio shadow under the framed photo
@@ -2731,6 +2806,8 @@
       canvasRatioRow.querySelectorAll('.preset-chip').forEach(c => c.classList.remove('active'));
       chip.classList.add('active');
       canvasRatio = chip.dataset.canvasRatio;
+      canvasOffsetX = 0;
+      canvasOffsetY = 0;
       renderLiveCanvasFrame();
     });
   }
@@ -3185,22 +3262,187 @@
   window.addEventListener('touchend', () => { if (isComparing) showEdited(); });
 
   // ==========================================
-  // 10. Save Clean Image & Trigger Success Modal
+  // 10. Advanced Export Studio Modal Engine
   // ==========================================
-  function exportImage() {
-    if (!currentWorkingImage) return;
+  const exportQualityModal = document.getElementById('exportQualityModal');
+  const btnCloseExportModal = document.getElementById('btnCloseExportModal');
+  const btnCancelExport = document.getElementById('btnCancelExport');
+  const btnConfirmExport = document.getElementById('btnConfirmExport');
+  const btnConfirmExportText = document.getElementById('btnConfirmExportText');
+  const exportQualitySlider = document.getElementById('exportQualitySlider');
+  const exportQualityLabel = document.getElementById('exportQualityLabel');
+  const exportEstSize = document.getElementById('exportEstSize');
+  const exportResLabel = document.getElementById('exportResLabel');
+  const exportQualityBadge = document.getElementById('exportQualityBadge');
+  const exportResLockToggle = document.getElementById('exportResLockToggle');
+  const exportResLockGroup = document.getElementById('exportResLockGroup');
+  const exportResLockDesc = document.getElementById('exportResLockDesc');
+  const btnFmtJpg = document.getElementById('btnFmtJpg');
+  const btnFmtPng = document.getElementById('btnFmtPng');
+
+  // Discrete stepped quality values requested by user:
+  // Compression: 20%, 30%, 40%, 50%, 60%, 70%, 80%, 90%, 100% (Original)
+  // Upscaling: 130%, 170%, 200%
+  const EXPORT_STEPS = [20, 30, 40, 50, 60, 70, 80, 90, 100, 130, 170, 200];
+  let exportFormat = 'jpeg'; // 'jpeg' or 'png'
+
+  function openExportModal() {
+    if (!currentWorkingImage || !baseCanvas.width) return;
+    if (exportQualityModal) {
+      exportQualityModal.classList.remove('hidden');
+      updateExportEstimate();
+    }
+  }
+
+  function closeExportModal() {
+    if (exportQualityModal) exportQualityModal.classList.add('hidden');
+  }
+
+  function updateExportEstimate() {
+    if (!currentWorkingImage || !baseCanvas.width) return;
+    const idx = parseInt(exportQualitySlider.value, 10);
+    const stepPct = EXPORT_STEPS[idx] !== undefined ? EXPORT_STEPS[idx] : 100;
+    const isUpscale = stepPct > 100;
+    const isLocked = exportResLockToggle && exportResLockToggle.checked && !isUpscale;
+
+    // 1. Dynamic Label & Badge
+    if (isUpscale) {
+      exportQualityLabel.textContent = `${stepPct}% (${stepPct === 200 ? '2x Ultra HD' : 'Super Resolution'})`;
+      exportQualityBadge.textContent = `${stepPct}% Upscaled`;
+      exportQualityBadge.className = 'stat-badge upscale';
+      if (exportResLockGroup) exportResLockGroup.classList.add('disabled');
+      if (exportResLockDesc) exportResLockDesc.textContent = `Upscaling expands dimensions to ${stepPct}% resolution`;
+    } else if (stepPct === 100) {
+      exportQualityLabel.textContent = '100% (Original HD)';
+      exportQualityBadge.textContent = '100% Original';
+      exportQualityBadge.className = 'stat-badge';
+      if (exportResLockGroup) exportResLockGroup.classList.remove('disabled');
+      if (exportResLockDesc) exportResLockDesc.textContent = 'Keep full dimensions (width × height) and compress file size only';
+    } else {
+      exportQualityLabel.textContent = `${stepPct}% (Compressed)`;
+      exportQualityBadge.textContent = isLocked ? `${stepPct}% Bitrate` : `${stepPct}% Scale`;
+      exportQualityBadge.className = 'stat-badge compress';
+      if (exportResLockGroup) exportResLockGroup.classList.remove('disabled');
+      if (exportResLockDesc) exportResLockDesc.textContent = isLocked 
+        ? 'Resolution locked: full pixel dimensions preserved' 
+        : `Resolution downscaled proportionally to ${stepPct}% dimensions`;
+    }
+
+    // 2. Target Dimensions
+    let scaleRatio = 1.0;
+    if (isUpscale) {
+      scaleRatio = stepPct / 100.0;
+    } else {
+      scaleRatio = isLocked ? 1.0 : (stepPct / 100.0);
+    }
+
+    const outW = Math.round(baseCanvas.width * scaleRatio);
+    const outH = Math.round(baseCanvas.height * scaleRatio);
+    exportResLabel.textContent = `${outW} × ${outH}`;
+
+    // 3. Real-time File Size Calculation
+    const totalPixels = outW * outH;
+    let estBytes = 0;
+    if (exportFormat === 'png') {
+      estBytes = Math.round(totalPixels * 1.85);
+    } else {
+      const q = isUpscale ? 0.96 : (isLocked ? Math.max(0.12, stepPct / 100.0) : 0.86);
+      const bpp = Math.max(0.035, 0.42 * Math.pow(q, 1.75));
+      estBytes = Math.round(totalPixels * bpp);
+    }
+
+    let sizeStr = '';
+    if (estBytes >= 1024 * 1024) {
+      sizeStr = `~${(estBytes / (1024 * 1024)).toFixed(2)} MB`;
+    } else {
+      sizeStr = `~${Math.round(estBytes / 1024)} KB`;
+    }
+    exportEstSize.textContent = sizeStr;
+    btnConfirmExportText.textContent = `Download Photo (${sizeStr})`;
+  }
+
+  function performFinalExport() {
+    if (!currentWorkingImage || !baseCanvas.width) return;
+    const idx = parseInt(exportQualitySlider.value, 10);
+    const stepPct = EXPORT_STEPS[idx] !== undefined ? EXPORT_STEPS[idx] : 100;
+    const isUpscale = stepPct > 100;
+    const isLocked = exportResLockToggle && exportResLockToggle.checked && !isUpscale;
+
+    let scaleRatio = 1.0;
+    let jpegQuality = 0.95;
+
+    if (isUpscale) {
+      scaleRatio = stepPct / 100.0;
+      jpegQuality = 0.96;
+    } else {
+      if (isLocked) {
+        scaleRatio = 1.0;
+        jpegQuality = Math.max(0.15, stepPct / 100.0);
+      } else {
+        scaleRatio = Math.max(0.2, stepPct / 100.0);
+        jpegQuality = 0.88;
+      }
+    }
+
+    const outW = Math.round(baseCanvas.width * scaleRatio);
+    const outH = Math.round(baseCanvas.height * scaleRatio);
+
+    const expCanvas = document.createElement('canvas');
+    expCanvas.width = outW;
+    expCanvas.height = outH;
+    const expCtx = expCanvas.getContext('2d');
+    expCtx.imageSmoothingEnabled = true;
+    expCtx.imageSmoothingQuality = 'high';
+    expCtx.drawImage(baseCanvas, 0, 0, outW, outH);
+
+    const mimeType = exportFormat === 'png' ? 'image/png' : 'image/jpeg';
+    const ext = exportFormat === 'png' ? 'png' : 'jpg';
+
+    const dataUrl = expCanvas.toDataURL(mimeType, jpegQuality);
     const link = document.createElement('a');
-    link.download = `inkerase_studio_${Date.now()}.jpg`;
-    link.href = baseCanvas.toDataURL('image/jpeg', 0.98);
+    link.download = `inkerase_studio_${stepPct}pct_${Date.now()}.${ext}`;
+    link.href = dataUrl;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
 
-    saveSuccessModal.classList.remove('hidden');
+    closeExportModal();
+    if (saveSuccessModal) saveSuccessModal.classList.remove('hidden');
   }
 
-  btnSaveImage.addEventListener('click', exportImage);
-  btnSaveImageBg.addEventListener('click', exportImage);
-  btnSaveImageBrush.addEventListener('click', exportImage);
+  if (exportQualitySlider) exportQualitySlider.addEventListener('input', updateExportEstimate);
+  if (exportResLockToggle) exportResLockToggle.addEventListener('change', updateExportEstimate);
+  if (btnCloseExportModal) btnCloseExportModal.addEventListener('click', closeExportModal);
+  if (btnCancelExport) btnCancelExport.addEventListener('click', closeExportModal);
+  if (btnConfirmExport) btnConfirmExport.addEventListener('click', performFinalExport);
+
+  if (btnFmtJpg && btnFmtPng) {
+    btnFmtJpg.addEventListener('click', () => {
+      exportFormat = 'jpeg';
+      btnFmtJpg.classList.add('active');
+      btnFmtPng.classList.remove('active');
+      updateExportEstimate();
+    });
+    btnFmtPng.addEventListener('click', () => {
+      exportFormat = 'png';
+      btnFmtPng.classList.add('active');
+      btnFmtJpg.classList.remove('active');
+      updateExportEstimate();
+    });
+  }
+
+  function exportImage() {
+    openExportModal();
+  }
+
+  // Connect all Save triggers across the studio to the Export Studio Modal
+  btnSaveImage.addEventListener('click', openExportModal);
+  btnSaveImageBg.addEventListener('click', openExportModal);
+  btnSaveImageBrush.addEventListener('click', openExportModal);
+  if (btnSaveImageSmooth) btnSaveImageSmooth.addEventListener('click', openExportModal);
+  if (btnSaveImageAdjust) btnSaveImageAdjust.addEventListener('click', openExportModal);
+  if (btnSaveImageText) btnSaveImageText.addEventListener('click', openExportModal);
+  if (btnSaveImageCanvas) btnSaveImageCanvas.addEventListener('click', openExportModal);
+  if (btnSaveImageCrop) btnSaveImageCrop.addEventListener('click', openExportModal);
 
 })();
