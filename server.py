@@ -129,6 +129,8 @@ def run_lama_inpainting_island(crop_img, raw_crop_mask):
 
 def process_image_with_islands(orig_np, mask_np):
     orig_h, orig_w = orig_np.shape[:2]
+    if mask_np.shape[:2] != (orig_h, orig_w):
+        mask_np = cv2.resize(mask_np, (orig_w, orig_h), interpolation=cv2.INTER_NEAREST)
     _, binary_mask = cv2.threshold(mask_np, 20, 255, cv2.THRESH_BINARY)
 
     # Merge nearby strokes (within 35px) into unified limb clusters
@@ -168,31 +170,49 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=DIRECTORY, **kwargs)
 
-    def do_POST(self):
-        if self.path == '/api/inpaint':
-            # Single Image Inpaint with Clustered Multi-Island Engine
-            content_length = int(self.headers.get('Content-Length', 0))
-            body = self.rfile.read(content_length)
-            data = json.loads(body.decode('utf-8'))
-
-            img_b64 = data['image'].split(',')[-1]
-            mask_b64 = data['mask'].split(',')[-1]
-
-            orig_img = Image.open(io.BytesIO(base64.b64decode(img_b64))).convert("RGB")
-            mask_img = Image.open(io.BytesIO(base64.b64decode(mask_b64))).convert("L")
-
-            result_np = process_image_with_islands(np.array(orig_img), np.array(mask_img))
-            result_img = Image.fromarray(result_np)
-
-            buf = io.BytesIO()
-            result_img.save(buf, format='JPEG', quality=98)
-            res_b64 = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode('utf-8')
-
-            resp = json.dumps({'success': True, 'result': res_b64}).encode('utf-8')
+    def do_GET(self):
+        if self.path == '/api/health':
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
-            self.wfile.write(resp)
+            self.wfile.write(b'{"status":"ok","ai":"ready"}')
+            return
+        super().do_GET()
+
+    def do_POST(self):
+        if self.path == '/api/inpaint':
+            try:
+                # Single Image Inpaint with Clustered Multi-Island Engine
+                content_length = int(self.headers.get('Content-Length', 0))
+                body = self.rfile.read(content_length)
+                data = json.loads(body.decode('utf-8'))
+
+                img_b64 = data['image'].split(',')[-1]
+                mask_b64 = data['mask'].split(',')[-1]
+
+                orig_img = Image.open(io.BytesIO(base64.b64decode(img_b64))).convert("RGB")
+                mask_img = Image.open(io.BytesIO(base64.b64decode(mask_b64))).convert("L")
+
+                result_np = process_image_with_islands(np.array(orig_img), np.array(mask_img))
+                result_img = Image.fromarray(result_np)
+
+                buf = io.BytesIO()
+                result_img.save(buf, format='JPEG', quality=98)
+                res_b64 = "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode('utf-8')
+
+                resp = json.dumps({'success': True, 'result': res_b64}).encode('utf-8')
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(resp)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                err_resp = json.dumps({'success': False, 'error': str(e)}).encode('utf-8')
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(err_resp)
             return
 
         elif self.path == '/api/segment_subject':

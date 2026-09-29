@@ -209,7 +209,7 @@
   let lastY = 0;
   let eraseBrushRadius = parseInt(brushSizeInput.value, 10);
   // Dynamic Endpoint Resolver for Web & APK compatibility
-  let CLOUD_TUNNEL_URL = 'https://administered-volt-thoughts-submissions.trycloudflare.com';
+  let CLOUD_TUNNEL_URL = 'https://remains-plot-slowly-lafayette.trycloudflare.com';
   const GITHUB_ENDPOINT_URL = 'https://raw.githubusercontent.com/qadirdelhi2/inkerase-ai/master/endpoint.json';
 
   async function syncBackendEndpoint() {
