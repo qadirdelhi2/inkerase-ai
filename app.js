@@ -3279,6 +3279,9 @@
   const exportResLockDesc = document.getElementById('exportResLockDesc');
   const btnFmtJpg = document.getElementById('btnFmtJpg');
   const btnFmtPng = document.getElementById('btnFmtPng');
+  const presetCompact = document.getElementById('presetCompact');
+  const presetOriginal = document.getElementById('presetOriginal');
+  const presetUpscale = document.getElementById('presetUpscale');
 
   // Discrete stepped quality values requested by user:
   // Compression: 20%, 30%, 40%, 50%, 60%, 70%, 80%, 90%, 100% (Original)
@@ -3305,30 +3308,12 @@
     const isUpscale = stepPct > 100;
     const isLocked = exportResLockToggle && exportResLockToggle.checked && !isUpscale;
 
-    // 1. Dynamic Label & Badge
-    if (isUpscale) {
-      exportQualityLabel.textContent = `${stepPct}% (${stepPct === 200 ? '2x Ultra HD' : 'Super Resolution'})`;
-      exportQualityBadge.textContent = `${stepPct}% Upscaled`;
-      exportQualityBadge.className = 'stat-badge upscale';
-      if (exportResLockGroup) exportResLockGroup.classList.add('disabled');
-      if (exportResLockDesc) exportResLockDesc.textContent = `Upscaling expands dimensions to ${stepPct}% resolution`;
-    } else if (stepPct === 100) {
-      exportQualityLabel.textContent = '100% (Original HD)';
-      exportQualityBadge.textContent = '100% Original';
-      exportQualityBadge.className = 'stat-badge';
-      if (exportResLockGroup) exportResLockGroup.classList.remove('disabled');
-      if (exportResLockDesc) exportResLockDesc.textContent = 'Keep full dimensions (width × height) and compress file size only';
-    } else {
-      exportQualityLabel.textContent = `${stepPct}% (Compressed)`;
-      exportQualityBadge.textContent = isLocked ? `${stepPct}% Bitrate` : `${stepPct}% Scale`;
-      exportQualityBadge.className = 'stat-badge compress';
-      if (exportResLockGroup) exportResLockGroup.classList.remove('disabled');
-      if (exportResLockDesc) exportResLockDesc.textContent = isLocked 
-        ? 'Resolution locked: full pixel dimensions preserved' 
-        : `Resolution downscaled proportionally to ${stepPct}% dimensions`;
-    }
+    // Sync active preset highlight
+    if (presetCompact) presetCompact.classList.toggle('active', idx === 2);
+    if (presetOriginal) presetOriginal.classList.toggle('active', idx === 8);
+    if (presetUpscale) presetUpscale.classList.toggle('active', idx === 11);
 
-    // 2. Target Dimensions
+    // Target Dimensions
     let scaleRatio = 1.0;
     if (isUpscale) {
       scaleRatio = stepPct / 100.0;
@@ -3340,7 +3325,30 @@
     const outH = Math.round(baseCanvas.height * scaleRatio);
     exportResLabel.textContent = `${outW} × ${outH}`;
 
-    // 3. Real-time File Size Calculation
+    // Dynamic Label & Badge
+    if (isUpscale) {
+      exportQualityLabel.textContent = `${stepPct}% (${stepPct === 200 ? '2x Ultra HD' : 'Super Resolution'})`;
+      exportQualityBadge.textContent = `${stepPct}% Upscaled`;
+      exportQualityBadge.className = 'stat-badge upscale';
+      if (exportResLockGroup) exportResLockGroup.classList.add('disabled');
+      if (exportResLockDesc) exportResLockDesc.textContent = `Dimensions enlarged to ${outW} × ${outH} px`;
+    } else if (stepPct === 100) {
+      exportQualityLabel.textContent = '100% (Original HD)';
+      exportQualityBadge.textContent = '100% Original';
+      exportQualityBadge.className = 'stat-badge';
+      if (exportResLockGroup) exportResLockGroup.classList.remove('disabled');
+      if (exportResLockDesc) exportResLockDesc.textContent = `Full dimensions preserved (${outW} × ${outH} px)`;
+    } else {
+      exportQualityLabel.textContent = `${stepPct}% (Compact)`;
+      exportQualityBadge.textContent = isLocked ? `${stepPct}% Quality` : `${stepPct}% Scale`;
+      exportQualityBadge.className = 'stat-badge compress';
+      if (exportResLockGroup) exportResLockGroup.classList.remove('disabled');
+      if (exportResLockDesc) exportResLockDesc.textContent = isLocked 
+        ? `Full dimensions preserved (${outW} × ${outH} px)` 
+        : `Dimensions downscaled to ${outW} × ${outH} px`;
+    }
+
+    // Real-time File Size Calculation
     const totalPixels = outW * outH;
     let estBytes = 0;
     if (exportFormat === 'png') {
@@ -3358,7 +3366,7 @@
       sizeStr = `~${Math.round(estBytes / 1024)} KB`;
     }
     exportEstSize.textContent = sizeStr;
-    btnConfirmExportText.textContent = `Download Photo (${sizeStr})`;
+    btnConfirmExportText.textContent = `Save Photo to Gallery (${sizeStr})`;
   }
 
   function performFinalExport() {
@@ -3415,6 +3423,25 @@
   if (btnCloseExportModal) btnCloseExportModal.addEventListener('click', closeExportModal);
   if (btnCancelExport) btnCancelExport.addEventListener('click', closeExportModal);
   if (btnConfirmExport) btnConfirmExport.addEventListener('click', performFinalExport);
+
+  if (presetCompact) {
+    presetCompact.addEventListener('click', () => {
+      exportQualitySlider.value = 2; // 40% Compact
+      updateExportEstimate();
+    });
+  }
+  if (presetOriginal) {
+    presetOriginal.addEventListener('click', () => {
+      exportQualitySlider.value = 8; // 100% Original HD
+      updateExportEstimate();
+    });
+  }
+  if (presetUpscale) {
+    presetUpscale.addEventListener('click', () => {
+      exportQualitySlider.value = 11; // 200% Ultra HD
+      updateExportEstimate();
+    });
+  }
 
   if (btnFmtJpg && btnFmtPng) {
     btnFmtJpg.addEventListener('click', () => {

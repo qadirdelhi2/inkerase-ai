@@ -491,21 +491,25 @@ body {
   transition: width 0.3s ease;
 }
 
-/* Save Success Modal */
+/* Full-Screen Save & Export Modals */
 .save-modal-overlay {
-  position: absolute;
+  position: fixed;
   top: 0;
   left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(8, 12, 20, 0.85);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(6, 8, 14, 0.88);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 70;
-  padding: 24px;
+  z-index: 99999;
+  padding: 16px;
+  box-sizing: border-box;
+  overflow-y: auto;
 }
 
 .save-modal-card {
@@ -2235,20 +2239,23 @@ body {
    Advanced Export Studio Modal Styles
    ========================================== */
 .export-modal-card {
-  max-width: 420px;
-  width: 92%;
-  padding: 24px;
-  background: #18181f;
+  max-width: 430px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 22px 20px;
+  background: #131722;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 24px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  box-sizing: border-box;
 }
 
 .export-modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .export-title-row {
@@ -2258,34 +2265,36 @@ body {
 }
 
 .export-icon-badge {
-  width: 40px;
-  height: 40px;
+  width: 42px;
+  height: 42px;
   border-radius: 12px;
   background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(79, 70, 229, 0.4));
-  border: 1px solid rgba(99, 102, 241, 0.4);
+  border: 1px solid rgba(99, 102, 241, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
   color: #818cf8;
+  flex-shrink: 0;
 }
 
 .export-main-title {
   font-size: 1.15rem;
   font-weight: 700;
-  color: #fff;
+  color: #ffffff;
   margin: 0;
 }
 
 .export-subtitle {
-  font-size: 0.76rem;
+  font-size: 0.75rem;
   color: var(--text-muted);
   display: block;
+  margin-top: 2px;
 }
 
 .btn-icon-close {
   background: rgba(255, 255, 255, 0.08);
   border: none;
-  color: #aaa;
+  color: #94a3b8;
   width: 32px;
   height: 32px;
   border-radius: 50%;
@@ -2298,20 +2307,20 @@ body {
 }
 
 .btn-icon-close:hover {
-  background: rgba(255, 255, 255, 0.15);
-  color: #fff;
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
 }
 
-/* Stats Card */
+/* Real-time Stats Card */
 .export-stats-card {
   display: flex;
   align-items: center;
   justify-content: space-around;
   background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 16px;
   padding: 12px 14px;
-  margin-bottom: 18px;
+  margin-bottom: 16px;
 }
 
 .stat-col {
@@ -2329,7 +2338,7 @@ body {
 }
 
 .stat-value {
-  font-size: 0.92rem;
+  font-size: 0.88rem;
   font-weight: 700;
   color: #e2e8f0;
 }
@@ -2367,10 +2376,132 @@ body {
   border-color: rgba(56, 189, 248, 0.3);
 }
 
+/* Sections */
+.export-section {
+  margin-bottom: 14px;
+  text-align: left;
+}
+
+.export-section-label {
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #94a3b8;
+  display: block;
+}
+
+/* Quick Presets Grid */
+.export-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.export-preset-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 4px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  color: #e2e8f0;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+}
+
+.export-preset-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.export-preset-btn.active {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(56, 189, 248, 0.2));
+  border-color: #818cf8;
+  box-shadow: 0 0 14px rgba(99, 102, 241, 0.35);
+}
+
+.preset-icon {
+  font-size: 1.15rem;
+  margin-bottom: 3px;
+}
+
+.preset-name {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.preset-sub {
+  font-size: 0.64rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* Fine-tune Slider Header & Track */
+.slider-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
 .export-pct-pill {
   font-size: 0.82rem;
   font-weight: 700;
   color: #818cf8;
+}
+
+.export-slider-container {
+  width: 100%;
+  padding: 4px 0;
+}
+
+/* Clean, modern, finger-friendly range slider */
+.export-modern-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 8px;
+  border-radius: 6px;
+  background: linear-gradient(to right, #38bdf8 0%, #6366f1 72%, #f59e0b 100%);
+  outline: none;
+  cursor: pointer;
+  margin: 10px 0 6px 0;
+  transition: opacity 0.2s ease;
+}
+
+.export-modern-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 3px solid #6366f1;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5), 0 0 10px rgba(99, 102, 241, 0.6);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.export-modern-range::-webkit-slider-thumb:hover,
+.export-modern-range::-webkit-slider-thumb:active {
+  transform: scale(1.15);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6), 0 0 16px rgba(99, 102, 241, 0.9);
+}
+
+.export-modern-range::-moz-range-thumb {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 3px solid #6366f1;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5), 0 0 10px rgba(99, 102, 241, 0.6);
+  cursor: pointer;
 }
 
 .export-ticks-row {
@@ -2379,7 +2510,7 @@ body {
   font-size: 0.68rem;
   color: var(--text-muted);
   margin-top: 4px;
-  padding: 0 4px;
+  padding: 0 2px;
 }
 
 .tick-center {
@@ -2390,10 +2521,6 @@ body {
 .tick-upscale {
   color: #f59e0b;
   font-weight: 600;
-}
-
-.export-setting-group {
-  margin-bottom: 16px;
 }
 
 /* Toggle Switch */
@@ -2418,7 +2545,7 @@ body {
 }
 
 .toggle-title {
-  font-size: 0.84rem;
+  font-size: 0.82rem;
   font-weight: 600;
   color: #f1f5f9;
 }
@@ -2473,14 +2600,8 @@ body {
 .export-format-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 20px;
-}
-
-.format-label {
-  font-size: 0.80rem;
-  color: var(--text-muted);
-  font-weight: 600;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .format-chips {
@@ -2489,15 +2610,17 @@ body {
 }
 
 .format-chip {
-  padding: 6px 14px;
+  padding: 6px 12px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
   color: #cbd5e1;
-  font-size: 0.78rem;
-  font-weight: 600;
+  font-size: 0.76rem;
   cursor: pointer;
   transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .format-chip.active {
@@ -2506,4 +2629,10 @@ body {
   color: #fff;
   box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
 }
+
+.format-hint {
+  font-size: 0.68rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
 
