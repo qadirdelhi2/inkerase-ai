@@ -508,9 +508,13 @@
   // ==========================================
   // 2. Navigation & New Photo Selection
   // ==========================================
-  btnNewImage.addEventListener('click', () => imageInput.click());
+  btnNewImage.addEventListener('click', () => {
+    imageInput.value = '';
+    imageInput.click();
+  });
   btnModalNewImage.addEventListener('click', () => {
     saveSuccessModal.classList.add('hidden');
+    imageInput.value = '';
     imageInput.click();
   });
   btnModalStay.addEventListener('click', () => saveSuccessModal.classList.add('hidden'));
@@ -552,14 +556,58 @@
     const file = e.target.files && e.target.files[0];
     if (!file) return;
 
+    if (processingOverlay) {
+      processingOverlay.classList.remove('hidden');
+      processStatusTitle.textContent = "Loading Photo...";
+      processStatusSub.textContent = "Preparing high-resolution studio canvas";
+      if (progressFill) progressFill.style.width = "40%";
+    }
+
+    const loadImgFromSrc = (src, cleanup) => {
+      const img = new Image();
+      img.onload = () => {
+        if (cleanup) cleanup();
+        if (progressFill) progressFill.style.width = "100%";
+        setTimeout(() => {
+          if (processingOverlay) processingOverlay.classList.add('hidden');
+        }, 120);
+        try {
+          initializeWorkspace(img);
+        } catch (initErr) {
+          console.error('[InkErase] Failed to initialize workspace:', initErr);
+          alert('Could not initialize workspace: ' + (initErr.message || initErr));
+        }
+      };
+      img.onerror = (err) => {
+        if (cleanup) cleanup();
+        if (processingOverlay) processingOverlay.classList.add('hidden');
+        console.error('[InkErase] Failed to decode image:', err);
+        alert('Could not load the selected photo. Please try choosing another photo from your gallery.');
+      };
+      img.src = src;
+    };
+
+    if (window.URL && typeof window.URL.createObjectURL === 'function') {
+      try {
+        const objUrl = URL.createObjectURL(file);
+        loadImgFromSrc(objUrl, () => {
+          try { URL.revokeObjectURL(objUrl); } catch (_) {}
+        });
+        return;
+      } catch (err) {
+        console.warn('[InkErase] URL.createObjectURL failed, falling back to FileReader:', err);
+      }
+    }
+
     const reader = new FileReader();
     reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => initializeWorkspace(img);
-      img.src = event.target.result;
+      loadImgFromSrc(event.target.result);
+    };
+    reader.onerror = () => {
+      if (processingOverlay) processingOverlay.classList.add('hidden');
+      alert('Could not read image file from device storage. Please check gallery permissions.');
     };
     reader.readAsDataURL(file);
-    imageInput.value = '';
   });
 
   function initializeWorkspace(img) {
@@ -3824,7 +3872,6 @@
             if (saveSuccessModal) saveSuccessModal.classList.remove('hidden');
             return;
           }
-        }
       } catch (err) {
         console.warn('[AI Upscale] Neural backend fallback to bicubic:', err);
       } finally {
