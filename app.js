@@ -27,6 +27,7 @@
   const saveSuccessModal = document.getElementById('saveSuccessModal');
   const btnModalNewImage = document.getElementById('btnModalNewImage');
   const btnModalStay = document.getElementById('btnModalStay');
+  const btnModalShare = document.getElementById('btnModalShare');
   const gpuStatusText = document.getElementById('gpuStatusText');
 
   const processingOverlay = document.getElementById('processingOverlay');
@@ -460,6 +461,39 @@
     imageInput.click();
   });
   btnModalStay.addEventListener('click', () => saveSuccessModal.classList.add('hidden'));
+
+  if (btnModalShare) {
+    btnModalShare.addEventListener('click', async () => {
+      if (!lastExportedDataUrl) return;
+      try {
+        const parts = lastExportedDataUrl.split(',');
+        const mime = parts[0].match(/:(.*?);/)[1];
+        const bstr = atob(parts[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) {
+          u8arr[n] = bstr.charCodeAt(n);
+        }
+        const blob = new Blob([u8arr], { type: mime });
+        const file = new File([blob], lastExportedFilename, { type: mime });
+
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: 'InkErase Clean Photo',
+            text: 'Edited with InkErase AI'
+          });
+        } else if (navigator.share) {
+          await navigator.share({
+            title: 'InkErase Clean Photo',
+            url: window.location.href
+          });
+        }
+      } catch (err) {
+        if (err.name !== 'AbortError') console.warn('[InkErase] Share button error:', err);
+      }
+    });
+  }
 
   imageInput.addEventListener('change', (e) => {
     const file = e.target.files && e.target.files[0];
@@ -3623,13 +3657,89 @@
     btnConfirmExportText.textContent = `Save Photo to Gallery (${sizeStr})`;
   }
 
-  function triggerDownload(url, filename) {
-    const link = document.createElement('a');
-    link.download = filename;
-    link.href = url;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  let lastExportedDataUrl = null;
+  let lastExportedFilename = 'inkerase_photo.jpg';
+
+  async function triggerDownload(url, filename) {
+    lastExportedDataUrl = url;
+    lastExportedFilename = filename;
+    let savedToDevice = false;
+
+    // 1. Direct Native Android Gallery Save via Capacitor Media Plugin (Saves to MediaStore / Pictures)
+    if (window.Capacitor && window.Capacitor.Plugins) {
+      const plugins = window.Capacitor.Plugins;
+      if (plugins.Media && plugins.Media.savePhoto) {
+        try {
+          console.log('[InkErase] Saving photo directly to Android Gallery via Media plugin...');
+          await plugins.Media.savePhoto({
+            path: url,
+            album: 'InkErase'
+          });
+          savedToDevice = true;
+          console.log('[InkErase] ✓ Photo saved directly to Android Gallery!');
+        } catch (mediaErr) {
+          console.warn('[InkErase] Media.savePhoto error, trying Filesystem fallback:', mediaErr);
+        }
+      }
+
+      // If Media plugin errored, fallback to Filesystem plugin
+      if (!savedToDevice && plugins.Filesystem && plugins.Filesystem.writeFile) {
+        try {
+          const base64Data = url.split(',')[1];
+          await plugins.Filesystem.writeFile({
+            path: `Pictures/${filename}`,
+            data: base64Data,
+            directory: 'DOCUMENTS',
+            recursive: true
+          });
+          savedToDevice = true;
+          console.log('[InkErase] ✓ Photo written to device storage!');
+        } catch (fsErr) {
+          console.warn('[InkErase] Filesystem write error:', fsErr);
+        }
+      }
+    }
+
+    // 2. Mobile Web Share API fallback (Allows user to tap "Save to device / Photos" or send to WhatsApp/Instagram)
+    if (!savedToDevice && navigator.canShare) {
+      try {
+        const parts = url.split(',');
+        const mime = parts[0].match(/:(.*?);/)[1];
+        const bstr = atob(parts[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) {
+          u8arr[n] = bstr.charCodeAt(n);
+        }
+        const blob = new Blob([u8arr], { type: mime });
+        const file = new File([blob], filename, { type: mime });
+
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: 'InkErase Clean Photo',
+            text: 'Edited with InkErase AI'
+          });
+          savedToDevice = true;
+        }
+      } catch (shareErr) {
+        if (shareErr.name !== 'AbortError') {
+          console.warn('[InkErase] Web Share fallback error:', shareErr);
+        } else {
+          savedToDevice = true;
+        }
+      }
+    }
+
+    // 3. Desktop Browser Link Download Fallback (<a download>)
+    if (!savedToDevice) {
+      const link = document.createElement('a');
+      link.download = filename;
+      link.href = url;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
   }
 
   async function performFinalExport() {
@@ -3682,7 +3792,7 @@
             expCtx.drawImage(upscaledImg, 0, 0, targetW, targetH);
 
             const downloadUrl = expCanvas.toDataURL(mimeType, 0.98);
-            triggerDownload(downloadUrl, `inkerase_ai_upscale_${stepPct}pct_${Date.now()}.${ext}`);
+            await triggerDownload(downloadUrl, `inkerase_ai_upscale_${stepPct}pct_${Date.now()}.${ext}`);
 
             await autoSaveCurrentDraft();
 
@@ -3728,7 +3838,7 @@
     expCtx.drawImage(baseCanvas, 0, 0, outW, outH);
 
     const dataUrl = expCanvas.toDataURL(mimeType, jpegQuality);
-    triggerDownload(dataUrl, `inkerase_studio_${stepPct}pct_${Date.now()}.${ext}`);
+    await triggerDownload(dataUrl, `inkerase_studio_${stepPct}pct_${Date.now()}.${ext}`);
 
     await autoSaveCurrentDraft();
 

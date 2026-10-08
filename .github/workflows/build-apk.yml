@@ -32,9 +32,29 @@ jobs:
       - name: Install Dependencies & Init Capacitor
         run: |
           npm init -y
-          npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/android@latest
+          npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/android@latest @capacitor-community/media@latest @capacitor/filesystem@latest @capacitor/share@latest
           npx cap add android
           npx cap sync
+
+      - name: Configure Android Gallery Permissions
+        run: |
+          python3 -c "
+          import os
+          manifest_path = 'android/app/src/main/AndroidManifest.xml'
+          if os.path.exists(manifest_path):
+              with open(manifest_path, 'r', encoding='utf-8') as f:
+                  content = f.read()
+              perms = '''
+    <uses-permission android:name=\"android.permission.READ_MEDIA_IMAGES\" />
+    <uses-permission android:name=\"android.permission.READ_EXTERNAL_STORAGE\" android:maxSdkVersion=\"32\" />
+    <uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\" android:maxSdkVersion=\"29\" />
+</manifest>'''
+              content = content.replace('</manifest>', perms)
+              content = content.replace('<application', '<application android:requestLegacyExternalStorage=\"true\"')
+              with open(manifest_path, 'w', encoding='utf-8') as f:
+                  f.write(content)
+              print('Successfully injected MediaStore gallery permissions into AndroidManifest.xml')
+          "
 
       - name: Build APK with Gradle
         run: |
