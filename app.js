@@ -345,19 +345,38 @@
     return `${CLOUD_TUNNEL_URL}${path}`;
   }
 
-  // Universal Cloud / Local AI Engine Caller
+  // Universal Cloud / Local AI Engine Caller (Direct Fast REST + Gradio Queue Fallback)
   async function callCloudAi(endpointName, dataArray, localPath, localBody, timeoutMs = 25000) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      // 1. Permanent Hugging Face Space Cloud Engine
+      const headers = { 'Content-Type': 'application/json' };
+      if (HF_AUTH_TOKEN) {
+        headers['Authorization'] = `Bearer ${HF_AUTH_TOKEN}`;
+      }
+
+      // 1. Direct Zero-Latency Fast REST (1-2s response, bypasses Gradio Queue)
       if (CLOUD_TUNNEL_URL && CLOUD_TUNNEL_URL.includes('hf.space')) {
-        const headers = { 'Content-Type': 'application/json' };
-        if (HF_AUTH_TOKEN) {
-          headers['Authorization'] = `Bearer ${HF_AUTH_TOKEN}`;
+        try {
+          const directUrl = `${CLOUD_TUNNEL_URL}/cloud/${endpointName}`;
+          const directRes = await fetch(directUrl, {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify(localBody),
+            signal: controller.signal
+          });
+          if (directRes.ok) {
+            const data = await directRes.json();
+            if (data.success && (data.result || data.cutout)) {
+              return data.result || data.cutout;
+            }
+          }
+        } catch (restErr) {
+          console.warn('[InkErase] Fast REST failed, trying Gradio queue:', restErr);
         }
 
+        // 2. Gradio Queue Fallback
         const callUrl = `${CLOUD_TUNNEL_URL}/gradio_api/call/${endpointName}`;
         const callRes = await fetch(callUrl, {
           method: 'POST',
@@ -370,12 +389,7 @@
         if (!event_id) throw new Error('No event_id returned from HF Space');
 
         const streamUrl = `${CLOUD_TUNNEL_URL}/gradio_api/call/${endpointName}/${event_id}`;
-        const streamHeaders = {};
-        if (HF_AUTH_TOKEN) {
-          streamHeaders['Authorization'] = `Bearer ${HF_AUTH_TOKEN}`;
-        }
-
-        const streamRes = await fetch(streamUrl, { headers: streamHeaders, signal: controller.signal });
+        const streamRes = await fetch(streamUrl, { headers: { 'Authorization': headers['Authorization'] || '' }, signal: controller.signal });
         if (!streamRes.ok) throw new Error(`HF Space Stream HTTP ${streamRes.status}`);
         const text = await streamRes.text();
         const lines = text.split('\n');
@@ -394,7 +408,7 @@
         throw new Error('No valid data received in HF Space stream');
       }
 
-      // 2. Localhost server or standard REST fallback
+      // 3. Localhost server
       const targetUrl = getApiEndpoint(localPath);
       const res = await fetch(targetUrl, {
         method: 'POST',
@@ -701,9 +715,24 @@
   // ==========================================
   // 3. Zoom, Pan & Auto-Centering Engine
   // ==========================================
-  function getScaleFactor() {
+  let cachedRectLeft = 0;
+  let cachedRectTop = 0;
+  let cachedScaleX = 1;
+  let cachedScaleY = 1;
+  let cachedScaleFactor = 1;
+
+  function refreshCachedCoords() {
+    if (!baseCanvas || !baseCanvas.width) return;
     const rect = baseCanvas.getBoundingClientRect();
-    return (rect.width > 0 && baseCanvas.width > 0) ? (baseCanvas.width / rect.width) : 1;
+    cachedRectLeft = rect.left;
+    cachedRectTop = rect.top;
+    cachedScaleX = (rect.width > 0 && baseCanvas.width > 0) ? (baseCanvas.width / rect.width) : 1;
+    cachedScaleY = (rect.height > 0 && baseCanvas.height > 0) ? (baseCanvas.height / rect.height) : 1;
+    cachedScaleFactor = (cachedScaleX + cachedScaleY) / 2;
+  }
+
+  function getScaleFactor() {
+    return cachedScaleFactor || 1;
   }
 
   function fitCanvasToCurrentViewport() {
@@ -757,6 +786,7 @@
 
   function updateTransform() {
     canvasWrapper.style.transform = `translate3d(${panX}px, ${panY}px, 0px) scale(${scale})`;
+    refreshCachedCoords();
   }
 
   function resetTransform() {
@@ -1067,13 +1097,9 @@
   });
 
   function getCanvasCoords(clientX, clientY) {
-    const rect = baseCanvas.getBoundingClientRect();
-    const scaleX = baseCanvas.width / rect.width;
-    const scaleY = baseCanvas.height / rect.height;
-
     return {
-      x: (clientX - rect.left) * scaleX,
-      y: (clientY - rect.top) * scaleY
+      x: (clientX - cachedRectLeft) * cachedScaleX,
+      y: (clientY - cachedRectTop) * cachedScaleY
     };
   }
 
@@ -1091,16 +1117,12 @@
       return;
     }
 
-    // Keep square PiP fixed in top-left corner (no moving, no vectors, no text)
+    // Keep square PiP fixed in top-left corner
     pipMagnifier.classList.remove('hidden');
 
-    // True Screen-Relative 2.0x Optical Magnification
     const pipW = pipCanvas.width; // 110
     const pipH = pipCanvas.height; // 110
-    const canvasRect = baseCanvas.getBoundingClientRect();
-    const screenPixelToCanvasRatio = baseCanvas.width / (canvasRect.width || 1);
-
-    // 2.0x optical screen zoom: 110px loupe displays 55px worth of the visible screen area
+    const screenPixelToCanvasRatio = cachedScaleFactor || 1;
     const srcSize = (pipW / 2.0) * screenPixelToCanvasRatio;
 
     pipCtx.clearRect(0, 0, pipW, pipH);
@@ -1110,10 +1132,8 @@
     const sx = canvasX - srcSize / 2;
     const sy = canvasY - srcSize / 2;
 
-    // 1. Draw pristine magnified base photo under finger
     pipCtx.drawImage(baseCanvas, sx, sy, srcSize, srcSize, 0, 0, pipW, pipH);
 
-    // 2. If tattoo erase, draw mask with 45% transparency so photo is ALWAYS visible!
     if (activeTool === 'erase') {
       pipCtx.save();
       pipCtx.globalAlpha = 0.45;
@@ -1132,10 +1152,11 @@
     });
   }
 
-  function startInteraction(clientX, clientY) {
+  function startInteraction(clientX, clientY, isTouch = false) {
     if (!currentWorkingImage || isComparing) return;
     if (activeTool === 'bgblur' || activeTool === 'adjust' || activeTool === 'text' || activeTool === 'canvas' || activeTool === 'crop') return;
 
+    refreshCachedCoords();
     const coords = getCanvasCoords(clientX, clientY);
     lastX = coords.x;
     lastY = coords.y;
@@ -1145,7 +1166,10 @@
     let activeRadius = eraseBrushRadius;
     if (activeTool === 'brushblur') activeRadius = manualBrushRadius;
     else if (activeTool === 'skinsmooth') activeRadius = skinSmoothRadius;
-    drawCursor(coords.x, coords.y, activeRadius, true);
+
+    if (!isTouch) {
+      drawCursor(coords.x, coords.y, activeRadius, true);
+    }
 
     if (activeTool === 'erase') {
       saveMaskStroke();
@@ -1159,10 +1183,10 @@
       drawSkinSmoothDab(lastX, lastY);
     }
 
-    updatePipMagnifier(clientX, clientY, coords.x, coords.y, activeRadius);
+    schedulePipMagnifier(clientX, clientY, coords.x, coords.y, activeRadius);
   }
 
-  function moveInteraction(clientX, clientY) {
+  function moveInteraction(clientX, clientY, isTouch = false) {
     if (activeTool === 'bgblur' || activeTool === 'adjust' || activeTool === 'text' || activeTool === 'canvas' || activeTool === 'crop') {
       cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
       if (pipMagnifier) pipMagnifier.classList.add('hidden');
@@ -1175,12 +1199,15 @@
     if (activeTool === 'brushblur') activeRadius = manualBrushRadius;
     else if (activeTool === 'skinsmooth') activeRadius = skinSmoothRadius;
 
-    drawCursor(coords.x, coords.y, activeRadius, true);
+    // Zero-lag touch rendering: skip cursorCanvas repaint during touch dragging
+    if (!isTouch) {
+      drawCursor(coords.x, coords.y, activeRadius, true);
+    }
 
     if (!isDrawing || !currentWorkingImage || isComparing) return;
 
     if (activeTool === 'erase') {
-      // 100% Instantaneous touch tracking with zero lag and no trailing tail
+      // 100% Instantaneous real-time stroke with zero delay and no trailing tail
       drawEraseStroke(lastX, lastY, coords.x, coords.y);
       lastX = coords.x;
       lastY = coords.y;
@@ -1194,7 +1221,6 @@
       lastY = coords.y;
     }
 
-    // Schedule magnifier rendering via RAF for 60/120fps butter-smooth drawing with zero lag
     schedulePipMagnifier(clientX, clientY, coords.x, coords.y, activeRadius);
   }
 
@@ -1207,9 +1233,7 @@
     if (!isDrawing) return;
     isDrawing = false;
     currentStrokePoints = [];
-    setTimeout(() => {
-      if (!isDrawing) cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
-    }, 450);
+    cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
 
     if (activeTool === 'brushblur' || activeTool === 'skinsmooth') {
       // Bake manual stroke to working image
@@ -1218,7 +1242,6 @@
       snap.height = baseCanvas.height;
       snap.getContext('2d').drawImage(baseCanvas, 0, 0);
       currentWorkingImage = snap;
-      // Invalidate cached cutout because image pixels changed
       cachedSubjectCutout = null;
     }
 
@@ -1243,12 +1266,11 @@
     cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
     if (activeTool === 'bgblur' || activeTool === 'adjust' || activeTool === 'text' || activeTool === 'canvas' || activeTool === 'crop') return;
 
-    const rect = baseCanvas.getBoundingClientRect();
-    const scaleX = baseCanvas.width / (rect.width || 1);
-    const scaleY = baseCanvas.height / (rect.height || 1);
+    const scaleX = cachedScaleX || 1;
+    const scaleY = cachedScaleY || 1;
     const rX = radius * scaleX;
     const rY = radius * scaleY;
-    const sf = (scaleX + scaleY) / 2;
+    const sf = cachedScaleFactor || 1;
 
     cursorCtx.save();
     if (!isFast) {
@@ -1293,7 +1315,7 @@
 
   // --- Tool 1: Tattoo Mask Drawing with Quadratic Bézier Splines ---
   function drawEraseDot(x, y) {
-    const sf = getScaleFactor();
+    const sf = cachedScaleFactor || 1;
     const radius = eraseBrushRadius * sf;
     maskCtx.fillStyle = 'rgba(255, 46, 99, 0.85)';
     maskCtx.beginPath();
@@ -1302,7 +1324,7 @@
   }
 
   function drawEraseStroke(x1, y1, x2, y2) {
-    const sf = getScaleFactor();
+    const sf = cachedScaleFactor || 1;
     const radius = eraseBrushRadius * sf;
     maskCtx.strokeStyle = 'rgba(255, 46, 99, 0.85)';
     maskCtx.fillStyle = 'rgba(255, 46, 99, 0.85)';
@@ -1317,7 +1339,7 @@
   }
 
   function drawEraseCurve(x0, y0, cx, cy, x1, y1) {
-    const sf = getScaleFactor();
+    const sf = cachedScaleFactor || 1;
     const radius = eraseBrushRadius * sf;
     maskCtx.strokeStyle = 'rgba(255, 46, 99, 0.85)';
     maskCtx.fillStyle = 'rgba(255, 46, 99, 0.85)';
