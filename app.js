@@ -303,8 +303,8 @@
   let lastX = 0;
   let lastY = 0;
   let eraseBrushRadius = parseInt(brushSizeInput.value, 10);
-  // Dynamic Endpoint Resolver for Web & APK compatibility
-  let CLOUD_TUNNEL_URL = 'https://traveler-michel-webshots-dictionaries.trycloudflare.com';
+  // Permanent 24/7 Cloud AI Engine on Hugging Face ZeroGPU
+  let CLOUD_TUNNEL_URL = 'https://qadirdelhi2-inkerase-ai.hf.space';
   const GITHUB_ENDPOINT_URL = 'https://raw.githubusercontent.com/qadirdelhi2/inkerase-ai/master/endpoint.json';
 
   async function syncBackendEndpoint() {
@@ -312,8 +312,9 @@
       const res = await fetch(GITHUB_ENDPOINT_URL, { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
-        if (data.url) {
-          CLOUD_TUNNEL_URL = data.url.replace(/\/+$/, '');
+        const activeUrl = data.endpoint || data.url;
+        if (activeUrl) {
+          CLOUD_TUNNEL_URL = activeUrl.replace(/\/+$/, '');
           console.log('[InkErase] Active AI backend synced from cloud:', CLOUD_TUNNEL_URL);
         }
       }
@@ -340,7 +341,59 @@
     return `${CLOUD_TUNNEL_URL}${path}`;
   }
 
-  gpuStatusText.textContent = '⚡ Studio AI Active';
+  // Universal Cloud / Local AI Engine Caller
+  async function callCloudAi(endpointName, dataArray, localPath, localBody, timeoutMs = 45000) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      // 1. Permanent Hugging Face Space (ZeroGPU Cloud Engine)
+      if (CLOUD_TUNNEL_URL && CLOUD_TUNNEL_URL.includes('hf.space')) {
+        const callUrl = `${CLOUD_TUNNEL_URL}/gradio_api/call/${endpointName}`;
+        const callRes = await fetch(callUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: dataArray }),
+          signal: controller.signal
+        });
+        if (!callRes.ok) throw new Error(`HF Space API HTTP ${callRes.status}`);
+        const { event_id } = await callRes.json();
+        if (!event_id) throw new Error('No event_id returned from HF Space');
+
+        const streamUrl = `${CLOUD_TUNNEL_URL}/gradio_api/call/${endpointName}/${event_id}`;
+        const streamRes = await fetch(streamUrl, { signal: controller.signal });
+        if (!streamRes.ok) throw new Error(`HF Space Stream HTTP ${streamRes.status}`);
+        const text = await streamRes.text();
+        const lines = text.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('data:')) {
+            const jsonStr = line.slice(5).trim();
+            if (jsonStr.startsWith('[')) {
+              const arr = JSON.parse(jsonStr);
+              return arr[0];
+            }
+          }
+        }
+        throw new Error('No valid data received in HF Space stream');
+      }
+
+      // 2. Localhost server or standard REST fallback
+      const targetUrl = getApiEndpoint(localPath);
+      const res = await fetch(targetUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(localBody),
+        signal: controller.signal
+      });
+      if (!res.ok) throw new Error(`Local server HTTP ${res.status}`);
+      const data = await res.json();
+      return data.result || data.cutout;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  gpuStatusText.textContent = '⚡ Cloud AI 24/7 Active';
 
   // ==========================================
   // 1. Tool Switching & Tab Navigation
@@ -1501,31 +1554,19 @@
 
         progressFill.style.width = '60%';
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 35000);
+        const cutoutB64 = await callCloudAi('segment_subject', [imgB64], '/api/segment_subject', { image: imgB64 }, 35000);
 
-        const res = await fetch(getApiEndpoint('/api/segment_subject'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: imgB64 }),
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-
-        if (res.ok) {
-          const data = await res.json();
-          if (data.success && data.cutout) {
-            await new Promise((resolve, reject) => {
-              const cutoutImg = new Image();
-              cutoutImg.onload = () => {
-                cachedSubjectCutout = cutoutImg;
-                resolve();
-              };
-              cutoutImg.onerror = reject;
-              cutoutImg.src = data.cutout;
-            });
-            cutoutLoaded = true;
-          }
+        if (cutoutB64 && !cutoutB64.startsWith('ERROR:')) {
+          await new Promise((resolve, reject) => {
+            const cutoutImg = new Image();
+            cutoutImg.onload = () => {
+              cachedSubjectCutout = cutoutImg;
+              resolve();
+            };
+            cutoutImg.onerror = reject;
+            cutoutImg.src = cutoutB64;
+          });
+          cutoutLoaded = true;
         }
       } catch (srvErr) {
         console.warn('Server segment_subject failed or timed out, trying on-device AI:', srvErr);
@@ -2913,38 +2954,26 @@
 
       progressFill.style.width = '70%';
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 20000);
+      const inpaintResult = await callCloudAi('inpaint', [imageBase64, maskBase64], '/api/inpaint', { image: imageBase64, mask: maskBase64 }, 30000);
 
-      const response = await fetch(getApiEndpoint('/api/inpaint'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: imageBase64, mask: maskBase64 }),
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-
-      if (response.ok) {
-        const resJson = await response.json();
-        if (resJson.success && resJson.result) {
-          progressFill.style.width = '95%';
-          await new Promise((resolve, reject) => {
-            const cleanImg = new Image();
-            cleanImg.onload = () => {
-              baseCtx.drawImage(cleanImg, 0, 0);
-              currentWorkingImage = cleanImg;
-              cachedSubjectMask = null;
-              cachedSubjectCutout = null;
-              clearMask();
-              updateUndoState();
-              showProgress(false);
-              resolve();
-            };
-            cleanImg.onerror = reject;
-            cleanImg.src = resJson.result;
-          });
-          serverSuccess = true;
-        }
+      if (inpaintResult && !inpaintResult.startsWith('ERROR:')) {
+        progressFill.style.width = '95%';
+        await new Promise((resolve, reject) => {
+          const cleanImg = new Image();
+          cleanImg.onload = () => {
+            baseCtx.drawImage(cleanImg, 0, 0);
+            currentWorkingImage = cleanImg;
+            cachedSubjectMask = null;
+            cachedSubjectCutout = null;
+            clearMask();
+            updateUndoState();
+            showProgress(false);
+            resolve();
+          };
+          cleanImg.onerror = reject;
+          cleanImg.src = inpaintResult;
+        });
+        serverSuccess = true;
       }
     } catch (srvErr) {
       console.warn('[InkErase] Server inpaint failed or timed out, executing On-Device Skin Inpaint fallback:', srvErr);
@@ -3763,21 +3792,15 @@
         }
 
         const baseB64 = baseCanvas.toDataURL('image/jpeg', 0.95);
-        const res = await fetch(getApiEndpoint('/api/upscale'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: baseB64, face_enhance: true })
-        });
+        const upscaledB64 = await callCloudAi('upscale', [baseB64, 'true'], '/api/upscale', { image: baseB64, face_enhance: true }, 60000);
 
-        if (res.ok) {
-          const data = await res.json();
-          if (data.success && data.result) {
-            if (progressFill) progressFill.style.width = "100%";
-            const upscaledImg = new Image();
-            await new Promise((resolve) => {
-              upscaledImg.onload = resolve;
-              upscaledImg.src = data.result;
-            });
+        if (upscaledB64 && !upscaledB64.startsWith('ERROR:')) {
+          if (progressFill) progressFill.style.width = "100%";
+          const upscaledImg = new Image();
+          await new Promise((resolve) => {
+            upscaledImg.onload = resolve;
+            upscaledImg.src = upscaledB64;
+          });
 
             const scaleRatio = stepPct / 100.0;
             const targetW = Math.round(baseCanvas.width * scaleRatio);
