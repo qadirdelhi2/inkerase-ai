@@ -47,37 +47,7 @@ jobs:
       - name: Configure Keystore Signing & Increment Version
         run: |
           cp keystore/inkerase-release.keystore android/app/inkerase-release.keystore
-          python3 -c "
-          import re
-          run_num = '${{ github.run_number }}'
-          with open('android/app/build.gradle', 'r') as f:
-              c = f.read()
-          c = re.sub(r'versionCode\s+\d+', f'versionCode {run_num}', c)
-          c = re.sub(r'versionName\s+\"[^\"]+\"', f'versionName \"1.0.{run_num}\"', c)
-          signing_code = '''
-    signingConfigs {
-        release {
-            storeFile file('inkerase-release.keystore')
-            storePassword 'inkerase123'
-            keyAlias 'inkerase'
-            keyPassword 'inkerase123'
-        }
-        debug {
-            storeFile file('inkerase-release.keystore')
-            storePassword 'inkerase123'
-            keyAlias 'inkerase'
-            keyPassword 'inkerase123'
-        }
-    }'''
-          if 'signingConfigs {' not in c:
-              c = c.replace('buildTypes {', signing_code + '\n    buildTypes {')
-          if 'signingConfig signingConfigs.release' not in c:
-              c = c.replace('release {', 'release {\n            signingConfig signingConfigs.release')
-          with open('android/app/build.gradle', 'w') as f:
-              f.write(c)
-          "
-          echo '=== Resulting build.gradle buildTypes section ==='
-          python3 -c "with open('android/app/build.gradle') as f: print(f.read())" | grep -A 25 "signingConfigs" || true
+          python3 configure_gradle.py "${{ github.run_number }}"
 
       - name: Build APK with Gradle
         run: |
