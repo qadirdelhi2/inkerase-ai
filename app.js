@@ -4370,6 +4370,93 @@
     }
   });
 
+  // ==========================================
+  // 12. In-App Auto-Update Engine
+  // ==========================================
+  const CURRENT_APP_VERSION_CODE = 25;
+  const CURRENT_APP_VERSION_NAME = '1.0.25';
+  let pendingUpdateUrl = 'https://github.com/qadirdelhi2/inkerase-ai/releases/latest/download/InkErase-AI.apk';
+
+  const appUpdateModal = document.getElementById('appUpdateModal');
+  const updateVersionBadge = document.getElementById('updateVersionBadge');
+  const updateNotesText = document.getElementById('updateNotesText');
+  const btnConfirmAppUpdate = document.getElementById('btnConfirmAppUpdate');
+  const btnDismissAppUpdate = document.getElementById('btnDismissAppUpdate');
+
+  async function checkAppUpdates(silent = true) {
+    try {
+      let info = null;
+      try {
+        const res = await fetch(`https://raw.githubusercontent.com/qadirdelhi2/inkerase-ai/master/version.json?_t=${Date.now()}`, { cache: 'no-store' });
+        if (res.ok) info = await res.json();
+      } catch (e) {
+        try {
+          const res2 = await fetch(`https://qadirdelhi2-inkerase-ai.hf.space/cloud/version?_t=${Date.now()}`, { cache: 'no-store' });
+          if (res2.ok) info = await res2.json();
+        } catch (e2) {}
+      }
+
+      if (!info || !info.versionCode) {
+        if (!silent) alert('You are on the latest version (v' + CURRENT_APP_VERSION_NAME + ')!');
+        return;
+      }
+
+      if (info.versionCode > CURRENT_APP_VERSION_CODE) {
+        pendingUpdateUrl = info.downloadUrl || 'https://github.com/qadirdelhi2/inkerase-ai/releases/latest/download/InkErase-AI.apk';
+        if (updateVersionBadge) {
+          updateVersionBadge.textContent = `v${info.versionName || info.versionCode} is ready (Current: v${CURRENT_APP_VERSION_NAME})`;
+        }
+        if (updateNotesText && info.releaseNotes) {
+          updateNotesText.textContent = info.releaseNotes;
+        }
+        if (btnDismissAppUpdate && info.forceUpdate) {
+          btnDismissAppUpdate.style.display = 'none';
+        }
+        if (appUpdateModal) {
+          appUpdateModal.classList.remove('hidden');
+        }
+      } else if (!silent) {
+        alert('You are already on the latest version (v' + CURRENT_APP_VERSION_NAME + ')!');
+      }
+    } catch (err) {
+      if (!silent) alert('Could not check for updates. Please check your internet connection.');
+    }
+  }
+
+  if (btnConfirmAppUpdate) {
+    btnConfirmAppUpdate.addEventListener('click', () => {
+      const url = pendingUpdateUrl;
+      window.open(url, '_system');
+      setTimeout(() => {
+        try { window.location.href = url; } catch (e) {}
+      }, 300);
+      if (appUpdateModal) appUpdateModal.classList.add('hidden');
+    });
+  }
+
+  if (btnDismissAppUpdate) {
+    btnDismissAppUpdate.addEventListener('click', () => {
+      if (appUpdateModal) appUpdateModal.classList.add('hidden');
+    });
+  }
+
+  if (appUpdateModal) {
+    appUpdateModal.addEventListener('click', (e) => {
+      if (e.target === appUpdateModal) appUpdateModal.classList.add('hidden');
+    });
+  }
+
+  // Allow manual check by tapping brand header
+  const brandInfoEl = document.getElementById('brandInfo');
+  if (brandInfoEl) {
+    brandInfoEl.style.cursor = 'pointer';
+    brandInfoEl.title = 'Tap to check for app updates';
+    brandInfoEl.addEventListener('click', () => checkAppUpdates(false));
+  }
+
+  // Automatic silent update check 2.5s after app launch
+  setTimeout(() => { checkAppUpdates(true); }, 2500);
+
   // Initial load of drafts from IndexedDB on app startup
   renderAllDraftsUI();
 

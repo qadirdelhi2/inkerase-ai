@@ -1,0 +1,8 @@
+{
+  "versionCode": 25,
+  "versionName": "1.0.25",
+  "downloadUrl": "https://github.com/qadirdelhi2/inkerase-ai/releases/latest/download/InkErase-AI.apk",
+  "backupUrl": "https://huggingface.co/spaces/qadirdelhi2/inkerase-ai/resolve/main/InkErase-AI.apk",
+  "releaseNotes": "• Fixed package signature conflict (consistent release keystore for seamless updates)\n• Added dedicated Back & Close buttons on Save Photo dialog\n• Fixed Saved Project Drafts restoration error\n• Added In-App Auto-Update notification",
+  "forceUpdate": false
+}

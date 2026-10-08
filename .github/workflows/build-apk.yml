@@ -5,6 +5,9 @@ on:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -27,7 +30,7 @@ jobs:
       - name: Prepare Web Assets
         run: |
           mkdir -p www
-          cp -r index.html style.css app.js manifest.json icon-512.png fonts mediapipe sw.js qr_code.png www/ 2>/dev/null || cp -r index.html style.css app.js manifest.json icon-512.png fonts mediapipe www/
+          cp -r index.html style.css app.js manifest.json icon-512.png fonts mediapipe sw.js qr_code.png version.json www/ 2>/dev/null || cp -r index.html style.css app.js manifest.json icon-512.png fonts mediapipe www/
 
       - name: Install Dependencies & Init Capacitor
         run: |
@@ -41,11 +44,43 @@ jobs:
           sed -i 's|<\/manifest>|  <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" \/>\n  <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" \/>\n  <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" \/>\n<\/manifest>|g' android/app/src/main/AndroidManifest.xml
           sed -i 's|<application|<application android:requestLegacyExternalStorage="true"|g' android/app/src/main/AndroidManifest.xml
 
+      - name: Configure Keystore Signing & Increment Version
+        run: |
+          cp keystore/inkerase-release.keystore android/app/inkerase-release.keystore
+          python3 -c "
+          import re
+          run_num = '${{ github.run_number }}'
+          with open('android/app/build.gradle', 'r') as f:
+              c = f.read()
+          c = re.sub(r'versionCode\s+\d+', f'versionCode {run_num}', c)
+          c = re.sub(r'versionName\s+\"[^\"]+\"', f'versionName \"1.0.{run_num}\"', c)
+          signing_code = '''signingConfigs {
+              release {
+                  storeFile file('inkerase-release.keystore')
+                  storePassword 'inkerase123'
+                  keyAlias 'inkerase'
+                  keyPassword 'inkerase123'
+              }
+              debug {
+                  storeFile file('inkerase-release.keystore')
+                  storePassword 'inkerase123'
+                  keyAlias 'inkerase'
+                  keyPassword 'inkerase123'
+              }
+          }'''
+          c = re.sub(r'signingConfigs\s*\{[\s\S]*?\}\s*buildTypes', signing_code + '\n    buildTypes', c)
+          c = re.sub(r'signingConfig\s+signingConfigs\.debug', 'signingConfig signingConfigs.release', c)
+          with open('android/app/build.gradle', 'w') as f:
+              f.write(c)
+          "
+          echo '=== Configured signingConfigs in build.gradle ==='
+          grep -A 20 "signingConfigs" android/app/build.gradle
+
       - name: Build APK with Gradle
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew assembleRelease --stacktrace || ./gradlew assembleDebug --stacktrace
 
       - name: Locate and Rename APK
         run: |
@@ -57,3 +92,18 @@ jobs:
         with:
           name: InkErase-AI-APK
           path: InkErase-AI.apk
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          TAG="v1.0.${{ github.run_number }}"
+          gh release delete latest --yes 2>/dev/null || true
+          git tag -d latest 2>/dev/null || true
+          git push origin :latest 2>/dev/null || true
+          gh release create "$TAG" InkErase-AI.apk \
+            --title "InkErase AI $TAG" \
+            --notes "InkErase AI Android Release $TAG with permanent release signing and in-app update support." \
+            --latest

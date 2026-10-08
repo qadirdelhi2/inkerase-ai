@@ -3067,5 +3067,97 @@ body {
   color: #fff;
 }
 
+/* ==========================================
+   In-App Auto Update Modal Styles
+   ========================================== */
+.update-modal-card {
+  max-width: 380px;
+  width: 100%;
+  padding: 26px 20px 20px 20px;
+  background: #141724;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  box-shadow: 0 25px 65px rgba(0, 0, 0, 0.9), 0 0 35px rgba(99, 102, 241, 0.15);
+  border-radius: 24px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.update-icon-circle {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(168, 85, 247, 0.3));
+  border: 2px solid rgba(129, 140, 248, 0.6);
+  color: #a5b4fc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 12px auto;
+  box-shadow: 0 0 25px rgba(99, 102, 241, 0.35);
+  animation: updatePulse 2.5s infinite;
+}
+
+@keyframes updatePulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 20px rgba(99, 102, 241, 0.3); }
+  50% { transform: scale(1.05); box-shadow: 0 0 32px rgba(129, 140, 248, 0.55); }
+}
+
+.update-header-info h3 {
+  font-size: 1.22rem;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0 0 4px 0;
+}
+
+.update-version-tag {
+  display: inline-block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  padding: 3px 12px;
+  border-radius: 999px;
+  margin: 4px 0 16px 0;
+}
+
+.update-notes-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 14px;
+  padding: 12px 14px;
+  text-align: left;
+  margin-bottom: 20px;
+}
+
+.update-notes-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #10b981;
+  margin-bottom: 6px;
+}
+
+.update-notes-text {
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: #cbd5e1;
+  margin: 0;
+  white-space: pre-line;
+}
+
+.btn-update-action {
+  background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4) !important;
+}
+
+.btn-update-action:hover {
+  background: linear-gradient(135deg, #4f46e5, #7c3aed) !important;
+  transform: translateY(-2px);
+}
+
+
 
 
