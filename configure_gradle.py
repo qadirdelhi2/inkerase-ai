@@ -20,6 +20,8 @@ try:
             storePassword 'inkerase123'
             keyAlias 'inkerase'
             keyPassword 'inkerase123'
+            v1SigningEnabled true
+            v2SigningEnabled true
         }
     }
 """

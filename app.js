@@ -4373,8 +4373,8 @@
   // ==========================================
   // 12. In-App Auto-Update Engine
   // ==========================================
-  const CURRENT_APP_VERSION_CODE = 25;
-  const CURRENT_APP_VERSION_NAME = '1.0.25';
+  const CURRENT_APP_VERSION_CODE = 29;
+  const CURRENT_APP_VERSION_NAME = '1.0.29';
   let pendingUpdateUrl = 'https://github.com/qadirdelhi2/inkerase-ai/releases/latest/download/InkErase-AI.apk';
 
   const appUpdateModal = document.getElementById('appUpdateModal');
