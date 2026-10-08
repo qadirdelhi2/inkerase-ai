@@ -54,27 +54,30 @@ jobs:
               c = f.read()
           c = re.sub(r'versionCode\s+\d+', f'versionCode {run_num}', c)
           c = re.sub(r'versionName\s+\"[^\"]+\"', f'versionName \"1.0.{run_num}\"', c)
-          signing_code = '''signingConfigs {
-              release {
-                  storeFile file('inkerase-release.keystore')
-                  storePassword 'inkerase123'
-                  keyAlias 'inkerase'
-                  keyPassword 'inkerase123'
-              }
-              debug {
-                  storeFile file('inkerase-release.keystore')
-                  storePassword 'inkerase123'
-                  keyAlias 'inkerase'
-                  keyPassword 'inkerase123'
-              }
-          }'''
-          c = re.sub(r'signingConfigs\s*\{[\s\S]*?\}\s*buildTypes', signing_code + '\n    buildTypes', c)
-          c = re.sub(r'signingConfig\s+signingConfigs\.debug', 'signingConfig signingConfigs.release', c)
+          signing_code = '''
+    signingConfigs {
+        release {
+            storeFile file('inkerase-release.keystore')
+            storePassword 'inkerase123'
+            keyAlias 'inkerase'
+            keyPassword 'inkerase123'
+        }
+        debug {
+            storeFile file('inkerase-release.keystore')
+            storePassword 'inkerase123'
+            keyAlias 'inkerase'
+            keyPassword 'inkerase123'
+        }
+    }'''
+          if 'signingConfigs {' not in c:
+              c = c.replace('buildTypes {', signing_code + '\n    buildTypes {')
+          if 'signingConfig signingConfigs.release' not in c:
+              c = c.replace('release {', 'release {\n            signingConfig signingConfigs.release')
           with open('android/app/build.gradle', 'w') as f:
               f.write(c)
           "
-          echo '=== Configured signingConfigs in build.gradle ==='
-          grep -A 20 "signingConfigs" android/app/build.gradle
+          echo '=== Resulting build.gradle buildTypes section ==='
+          python3 -c "with open('android/app/build.gradle') as f: print(f.read())" | grep -A 25 "signingConfigs" || true
 
       - name: Build APK with Gradle
         run: |
