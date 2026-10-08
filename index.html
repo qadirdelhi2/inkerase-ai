@@ -1109,22 +1109,24 @@
   <!-- Advanced Export Studio Modal (Full-Screen Fixed Overlay) -->
   <div class="save-modal-overlay hidden" id="exportQualityModal">
     <div class="save-modal-card export-modal-card">
-      <!-- Modal Header -->
+      <!-- Modal Header with Dedicated Back and Close Buttons -->
       <div class="export-modal-header">
-        <div class="export-title-row">
-          <div class="export-icon-badge">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="7 10 12 15 17 10"/>
-              <line x1="12" y1="15" x2="12" y2="3"/>
-            </svg>
-          </div>
-          <div>
-            <h3 class="export-main-title">Save Photo</h3>
-            <span class="export-subtitle">Choose quality and download to gallery</span>
-          </div>
+        <button type="button" id="btnBackExportModal" class="btn-modal-back-nav" aria-label="Go Back">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+          <span>Back</span>
+        </button>
+        <div class="export-title-center">
+          <h3 class="export-main-title">Save to Gallery</h3>
+          <span class="export-subtitle">Choose quality & download</span>
         </div>
-        <button id="btnCloseExportModal" class="btn-icon-close" title="Close" aria-label="Close">✕</button>
+        <button type="button" id="btnCloseExportModal" class="btn-icon-close" title="Close" aria-label="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
       </div>
 
       <!-- Real-time Live Stats Card -->
@@ -1276,19 +1278,23 @@
   <!-- Dedicated Drafts & Projects Modal (Full-Screen Fixed Overlay) -->
   <div class="save-modal-overlay hidden" id="draftsModal">
     <div class="save-modal-card drafts-modal-card">
-      <div class="export-modal-header">
-        <div class="export-title-row">
-          <div class="export-icon-badge drafts-icon-badge">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-            </svg>
-          </div>
-          <div>
-            <h3 class="export-main-title">Saved Projects & Drafts</h3>
-            <span class="export-subtitle" id="draftsModalSub">Open previous photos to continue editing</span>
-          </div>
+      <div class="export-modal-header drafts-modal-header">
+        <button type="button" id="btnBackDraftsModal" class="btn-modal-back-nav" aria-label="Go Back">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+          <span>Back</span>
+        </button>
+        <div class="export-title-center">
+          <h3 class="export-main-title">Saved Projects & Drafts</h3>
+          <span class="export-subtitle" id="draftsModalSub">Open previous photos to continue editing</span>
         </div>
-        <button id="btnCloseDraftsModal" class="btn-icon-close" title="Close" aria-label="Close">✕</button>
+        <button type="button" id="btnCloseDraftsModal" class="btn-icon-close" title="Close" aria-label="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
       </div>
 
       <!-- Drafts Content Area -->
@@ -1298,6 +1304,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20260929_drafts_v1"></script>
+  <script src="app.js?v=20261008_fix_drafts_export"></script>
 </body>
 </html>

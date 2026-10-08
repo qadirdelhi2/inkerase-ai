@@ -3703,6 +3703,7 @@
   // 10. Advanced Export Studio Modal Engine
   // ==========================================
   const exportQualityModal = document.getElementById('exportQualityModal');
+  const btnBackExportModal = document.getElementById('btnBackExportModal');
   const btnCloseExportModal = document.getElementById('btnCloseExportModal');
   const btnCancelExport = document.getElementById('btnCancelExport');
   const btnConfirmExport = document.getElementById('btnConfirmExport');
@@ -3991,8 +3992,14 @@
 
   if (exportQualitySlider) exportQualitySlider.addEventListener('input', updateExportEstimate);
   if (exportResLockToggle) exportResLockToggle.addEventListener('change', updateExportEstimate);
+  if (btnBackExportModal) btnBackExportModal.addEventListener('click', closeExportModal);
   if (btnCloseExportModal) btnCloseExportModal.addEventListener('click', closeExportModal);
   if (btnCancelExport) btnCancelExport.addEventListener('click', closeExportModal);
+  if (exportQualityModal) {
+    exportQualityModal.addEventListener('click', (e) => {
+      if (e.target === exportQualityModal) closeExportModal();
+    });
+  }
   if (btnConfirmExport) btnConfirmExport.addEventListener('click', performFinalExport);
 
   if (presetCompact) {
@@ -4057,6 +4064,7 @@
   const btnHeaderDrafts = document.getElementById('btnHeaderDrafts');
   const headerDraftsCount = document.getElementById('headerDraftsCount');
   const draftsModal = document.getElementById('draftsModal');
+  const btnBackDraftsModal = document.getElementById('btnBackDraftsModal');
   const btnCloseDraftsModal = document.getElementById('btnCloseDraftsModal');
   const draftsModalList = document.getElementById('draftsModalList');
   const draftsModalSub = document.getElementById('draftsModalSub');
@@ -4194,44 +4202,37 @@
         workImg.src = draft.workingImageData;
       });
 
-      if (draft.originalImageData) {
-        const origImg = new Image();
-        await new Promise((resolve) => {
-          origImg.onload = () => {
-            pristineOriginalImage = origImg;
-            resolve();
-          };
-          origImg.onerror = resolve;
-          origImg.src = draft.originalImageData;
-        });
+      // Load original pristine image if saved separately
+      let origImg = null;
+      if (draft.originalImageData && draft.originalImageData !== draft.workingImageData) {
+        try {
+          origImg = new Image();
+          await new Promise((resolve) => {
+            origImg.onload = resolve;
+            origImg.onerror = resolve;
+            origImg.src = draft.originalImageData;
+          });
+        } catch (e) {
+          console.warn('[Drafts] Original image load failed:', e);
+        }
       }
 
-      currentWorkingImage = workImg;
-      baseCanvas.width = workImg.width;
-      baseCanvas.height = workImg.height;
-      baseCtx.drawImage(workImg, 0, 0);
+      // Initialize full workspace (canvas dimensions, display scaling, viewports, erase tool)
+      initializeWorkspace(workImg);
 
-      maskCanvas.width = workImg.width;
-      maskCanvas.height = workImg.height;
-      maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
-      cursorCanvas.width = workImg.width;
-      cursorCanvas.height = workImg.height;
-      cursorCtx.clearRect(0, 0, cursorCanvas.width, cursorCanvas.height);
+      // Restore pristine copy for compare feature
+      if (origImg && origImg.width) {
+        const origCanvas = document.createElement('canvas');
+        origCanvas.width = origImg.width;
+        origCanvas.height = origImg.height;
+        origCanvas.getContext('2d').drawImage(origImg, 0, 0);
+        pristineOriginalImage = origCanvas;
+      }
 
-      undoStack = [];
-      redoStack = [];
-      saveImageState();
-
-      emptyState.classList.add('hidden');
-      editorView.classList.remove('hidden');
-      bottomBar.classList.remove('hidden');
-      btnNewImage.classList.remove('hidden');
-
-      fitCanvasToCurrentViewport();
-      switchStudioTool('erase');
       closeDraftsModal();
     } catch (err) {
-      alert('Error opening draft: ' + err.message);
+      console.error('[Drafts] Error opening draft:', err);
+      alert('Error opening draft: ' + (err && err.message ? err.message : String(err)));
     } finally {
       if (processingOverlay) processingOverlay.classList.add('hidden');
     }
@@ -4337,13 +4338,37 @@
   // Event Listeners for Drafts
   if (btnHeaderDrafts) btnHeaderDrafts.addEventListener('click', openDraftsModal);
   if (btnOpenAllDrafts) btnOpenAllDrafts.addEventListener('click', openDraftsModal);
+  if (btnBackDraftsModal) btnBackDraftsModal.addEventListener('click', closeDraftsModal);
   if (btnCloseDraftsModal) btnCloseDraftsModal.addEventListener('click', closeDraftsModal);
+  if (draftsModal) {
+    draftsModal.addEventListener('click', (e) => {
+      if (e.target === draftsModal) closeDraftsModal();
+    });
+  }
   if (btnModalViewDrafts) {
     btnModalViewDrafts.addEventListener('click', () => {
       if (saveSuccessModal) saveSuccessModal.classList.add('hidden');
       openDraftsModal();
     });
   }
+
+  // Hardware and Popstate Back Button Support (Android & Mobile browsers)
+  window.addEventListener('popstate', () => {
+    if (exportQualityModal && !exportQualityModal.classList.contains('hidden')) {
+      closeExportModal();
+    } else if (draftsModal && !draftsModal.classList.contains('hidden')) {
+      closeDraftsModal();
+    }
+  });
+  document.addEventListener('backbutton', (e) => {
+    if (exportQualityModal && !exportQualityModal.classList.contains('hidden')) {
+      e.preventDefault();
+      closeExportModal();
+    } else if (draftsModal && !draftsModal.classList.contains('hidden')) {
+      e.preventDefault();
+      closeDraftsModal();
+    }
+  });
 
   // Initial load of drafts from IndexedDB on app startup
   renderAllDraftsUI();
