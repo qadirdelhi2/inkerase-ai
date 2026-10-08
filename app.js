@@ -303,7 +303,7 @@
   let lastY = 0;
   let eraseBrushRadius = parseInt(brushSizeInput.value, 10);
   // Dynamic Endpoint Resolver for Web & APK compatibility
-  let CLOUD_TUNNEL_URL = 'https://remains-plot-slowly-lafayette.trycloudflare.com';
+  let CLOUD_TUNNEL_URL = 'https://traveler-michel-webshots-dictionaries.trycloudflare.com';
   const GITHUB_ENDPOINT_URL = 'https://raw.githubusercontent.com/qadirdelhi2/inkerase-ai/master/endpoint.json';
 
   async function syncBackendEndpoint() {
@@ -323,15 +323,19 @@
   syncBackendEndpoint();
 
   function getApiEndpoint(path) {
-    // In local desktop browser testing (http://127.0.0.1:8080 or http://localhost:8080)
+    // 1. In local desktop browser testing directly on port 8080
     if ((window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') && window.location.port === '8080') {
       return path;
     }
-    // If accessed through the cloud tunnel web page directly
+    // 2. If opened from localhost/127.0.0.1 on another port (e.g., Live Server port 5500, 3000, 80)
+    if (window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost') {
+      return `http://127.0.0.1:8080${path}`;
+    }
+    // 3. If accessed through the cloud tunnel web page directly
     if (window.location.origin === CLOUD_TUNNEL_URL) {
       return path;
     }
-    // In native Android APK (https://localhost, capacitor://, file://, etc.) or external network
+    // 4. In native Android APK (https://localhost, capacitor://, file://, etc.) or external network
     return `${CLOUD_TUNNEL_URL}${path}`;
   }
 
@@ -2605,17 +2609,223 @@
   }
 
   // ==========================================
+  // 7. Ultra-Realistic On-Device Skin Inpainting Engine (Instant Fallback)
+  // ==========================================
+  function runOnDeviceSkinInpaint(cropX1, cropY1, cropW, cropH) {
+    const baseDataObj = baseCtx.getImageData(cropX1, cropY1, cropW, cropH);
+    const maskData = maskCtx.getImageData(cropX1, cropY1, cropW, cropH).data;
+    const d = baseDataObj.data;
+    const W = cropW;
+    const H = cropH;
+    const total = W * H;
+
+    // 1. Identify masked pixels
+    const isMask = new Uint8Array(total);
+    const maskedIndices = [];
+    for (let i = 0; i < total; i++) {
+      if (maskData[i * 4 + 3] > 20) {
+        isMask[i] = 1;
+        maskedIndices.push(i);
+      }
+    }
+    const numMasked = maskedIndices.length;
+    if (numMasked === 0) return;
+
+    // 2. Sample surrounding clean skin (skipping dark tattoo ink edges)
+    const dirs = [
+      [-1, 0], [1, 0], [0, -1], [0, 1],
+      [-1, -1], [1, -1], [-1, 1], [1, 1]
+    ];
+
+    const bufR = new Float32Array(total);
+    const bufG = new Float32Array(total);
+    const bufB = new Float32Array(total);
+
+    for (let i = 0; i < total; i++) {
+      const p = i * 4;
+      bufR[i] = d[p];
+      bufG[i] = d[p + 1];
+      bufB[i] = d[p + 2];
+    }
+
+    const skinSamplesR = [];
+    const skinSamplesG = [];
+    const skinSamplesB = [];
+
+    // Ray march in 8 directions to initialize harmonic field
+    const maxRay = Math.max(60, Math.ceil(Math.hypot(W, H) * 0.6));
+    for (let k = 0; k < numMasked; k++) {
+      const idx = maskedIndices[k];
+      const px = idx % W;
+      const py = Math.floor(idx / W);
+
+      let wSum = 0, rSum = 0, gSum = 0, bSum = 0;
+      for (let dIdx = 0; dIdx < 8; dIdx++) {
+        const dx = dirs[dIdx][0];
+        const dy = dirs[dIdx][1];
+        let step = 1;
+        while (step < maxRay) {
+          const nx = px + dx * step;
+          const ny = py + dy * step;
+          if (nx < 0 || nx >= W || ny < 0 || ny >= H) break;
+          const nIdx = ny * W + nx;
+          if (!isMask[nIdx]) {
+            // Step 2-4px further into healthy skin to avoid dark tattoo ink edges
+            const safeStep = step + 3;
+            let safeX = px + dx * safeStep;
+            let safeY = py + dy * safeStep;
+            if (safeX < 0 || safeX >= W || safeY < 0 || safeY >= H) {
+              safeX = nx;
+              safeY = ny;
+            }
+            const sIdx = (safeY * W + safeX) * 4;
+            const dist = Math.hypot(safeX - px, safeY - py) || 1;
+            const weight = 1.0 / (dist * dist);
+
+            const r = d[sIdx];
+            const g = d[sIdx + 1];
+            const b = d[sIdx + 2];
+
+            rSum += r * weight;
+            gSum += g * weight;
+            bSum += b * weight;
+            wSum += weight;
+
+            if (skinSamplesR.length < 500) {
+              skinSamplesR.push(r);
+              skinSamplesG.push(g);
+              skinSamplesB.push(b);
+            }
+            break;
+          }
+          step++;
+        }
+      }
+
+      if (wSum > 0) {
+        bufR[idx] = rSum / wSum;
+        bufG[idx] = gSum / wSum;
+        bufB[idx] = bSum / wSum;
+      }
+    }
+
+    // 3. Multi-pass Laplacian PDE smoothing
+    const nextR = new Float32Array(bufR);
+    const nextG = new Float32Array(bufG);
+    const nextB = new Float32Array(bufB);
+    const passes = Math.min(45, Math.max(25, Math.round(Math.sqrt(numMasked) * 0.4)));
+
+    for (let it = 0; it < passes; it++) {
+      for (let k = 0; k < numMasked; k++) {
+        const idx = maskedIndices[k];
+        const x = idx % W;
+        const y = Math.floor(idx / W);
+        if (x <= 0 || x >= W - 1 || y <= 0 || y >= H - 1) continue;
+
+        const up = idx - W;
+        const down = idx + W;
+        const left = idx - 1;
+        const right = idx + 1;
+
+        nextR[idx] = 0.25 * (bufR[up] + bufR[down] + bufR[left] + bufR[right]);
+        nextG[idx] = 0.25 * (bufG[up] + bufG[down] + bufG[left] + bufG[right]);
+        nextB[idx] = 0.25 * (bufB[up] + bufB[down] + bufB[left] + bufB[right]);
+      }
+      for (let k = 0; k < numMasked; k++) {
+        const idx = maskedIndices[k];
+        bufR[idx] = nextR[idx];
+        bufG[idx] = nextG[idx];
+        bufB[idx] = nextB[idx];
+      }
+    }
+
+    // 4. Sample skin texture standard deviation (pores & sensor grain)
+    let skinNoiseStd = 4.5;
+    if (skinSamplesR.length > 10) {
+      let lumSum = 0;
+      const count = skinSamplesR.length;
+      for (let i = 0; i < count; i++) {
+        lumSum += 0.299 * skinSamplesR[i] + 0.587 * skinSamplesG[i] + 0.114 * skinSamplesB[i];
+      }
+      const meanLum = lumSum / count;
+      let varSum = 0;
+      for (let i = 0; i < count; i++) {
+        const lum = 0.299 * skinSamplesR[i] + 0.587 * skinSamplesG[i] + 0.114 * skinSamplesB[i];
+        varSum += (lum - meanLum) * (lum - meanLum);
+      }
+      skinNoiseStd = Math.min(9.0, Math.max(2.5, Math.sqrt(varSum / count)));
+    }
+
+    // 5. Multi-pass Feathered Alpha Map for Seamless Blending
+    const alphaMap = new Float32Array(total);
+    for (let k = 0; k < numMasked; k++) {
+      alphaMap[maskedIndices[k]] = 1.0;
+    }
+    const tempAlpha = new Float32Array(total);
+    for (let p = 0; p < 3; p++) {
+      for (let y = 1; y < H - 1; y++) {
+        const yOffset = y * W;
+        for (let x = 1; x < W - 1; x++) {
+          const idx = yOffset + x;
+          tempAlpha[idx] = (
+            alphaMap[idx - W - 1] + alphaMap[idx - W] + alphaMap[idx - W + 1] +
+            alphaMap[idx - 1]     + alphaMap[idx]     + alphaMap[idx + 1] +
+            alphaMap[idx + W - 1] + alphaMap[idx + W] + alphaMap[idx + W + 1]
+          ) / 9.0;
+        }
+      }
+      alphaMap.set(tempAlpha);
+    }
+
+    // 6. Write Synthesized Skin with Hermite feathering and Organic Micro-Pore Grain
+    for (let y = 0; y < H; y++) {
+      const yOffset = y * W;
+      for (let x = 0; x < W; x++) {
+        const idx = yOffset + x;
+        const rawA = alphaMap[idx];
+        if (rawA > 0.005) {
+          // Smooth Hermite S-curve blending (zero visible seam)
+          const a = rawA * rawA * (3.0 - 2.0 * rawA);
+          const p = idx * 4;
+
+          const u1 = Math.max(0.0001, Math.random());
+          const u2 = Math.random();
+          const noise = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2) * skinNoiseStd * 0.55;
+
+          const synR = Math.max(0, Math.min(255, bufR[idx] + noise));
+          const synG = Math.max(0, Math.min(255, bufG[idx] + noise * 0.92));
+          const synB = Math.max(0, Math.min(255, bufB[idx] + noise * 0.85));
+
+          d[p] = Math.round(d[p] * (1.0 - a) + synR * a);
+          d[p + 1] = Math.round(d[p + 1] * (1.0 - a) + synG * a);
+          d[p + 2] = Math.round(d[p + 2] * (1.0 - a) + synB * a);
+        }
+      }
+    }
+
+    baseCtx.putImageData(baseDataObj, cropX1, cropY1);
+  }
+
+  // ==========================================
   // 7. Fast Neural Inpainting (Tattoo Erase)
   // ==========================================
   btnEraseTattoo.addEventListener('click', async () => {
     if (!currentWorkingImage) return;
 
     const maskData = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height).data;
+    let minX = maskCanvas.width, minY = maskCanvas.height, maxX = 0, maxY = 0;
     let hasMask = false;
-    for (let i = 3; i < maskData.length; i += 16) {
-      if (maskData[i] > 20) {
-        hasMask = true;
-        break;
+
+    for (let y = 0; y < maskCanvas.height; y += 2) {
+      for (let x = 0; x < maskCanvas.width; x += 2) {
+        const idx = (y * maskCanvas.width + x) * 4;
+        if (maskData[idx + 3] > 20) {
+          hasMask = true;
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
       }
     }
 
@@ -2624,11 +2834,22 @@
       return;
     }
 
-    showProgress(true, 'Erasing Tattoos...', 'Processing tattoo clusters with high-resolution skin synthesis...', 35);
+    showProgress(true, 'Erasing Tattoos...', 'Synthesizing clean skin with Studio AI...', 35);
+
+    // Adaptive crop region around painted tattoo for fallback synthesis
+    const pad = Math.max(30, Math.round(Math.max(maxX - minX, maxY - minY) * 0.35));
+    const cropX1 = Math.max(0, minX - pad);
+    const cropY1 = Math.max(0, minY - pad);
+    const cropX2 = Math.min(baseCanvas.width, maxX + pad);
+    const cropY2 = Math.min(baseCanvas.height, maxY + pad);
+    const cropW = cropX2 - cropX1;
+    const cropH = cropY2 - cropY1;
+
+    saveImageState();
+
+    let serverSuccess = false;
 
     try {
-      saveImageState();
-
       // Base image JPEG
       const imageBase64 = baseCanvas.toDataURL('image/jpeg', 0.96);
 
@@ -2658,33 +2879,66 @@
 
       progressFill.style.width = '70%';
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 20000);
+
       const response = await fetch(getApiEndpoint('/api/inpaint'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: imageBase64, mask: maskBase64 })
+        body: JSON.stringify({ image: imageBase64, mask: maskBase64 }),
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
 
-      if (!response.ok) throw new Error('Server error ' + response.status);
-      const resJson = await response.json();
-      if (!resJson.success) throw new Error(resJson.error || 'Inpainting failed');
+      if (response.ok) {
+        const resJson = await response.json();
+        if (resJson.success && resJson.result) {
+          progressFill.style.width = '95%';
+          await new Promise((resolve, reject) => {
+            const cleanImg = new Image();
+            cleanImg.onload = () => {
+              baseCtx.drawImage(cleanImg, 0, 0);
+              currentWorkingImage = cleanImg;
+              cachedSubjectMask = null;
+              cachedSubjectCutout = null;
+              clearMask();
+              updateUndoState();
+              showProgress(false);
+              resolve();
+            };
+            cleanImg.onerror = reject;
+            cleanImg.src = resJson.result;
+          });
+          serverSuccess = true;
+        }
+      }
+    } catch (srvErr) {
+      console.warn('[InkErase] Server inpaint failed or timed out, executing On-Device Skin Inpaint fallback:', srvErr);
+    }
 
-      progressFill.style.width = '95%';
+    // Seamless Fallback: if server was down or timed out, synthesize skin directly on-device!
+    if (!serverSuccess) {
+      try {
+        showProgress(true, 'Synthesizing Skin...', 'Reconstructing skin pores & tone on-device...', 80);
+        await new Promise(r => setTimeout(r, 30));
+        runOnDeviceSkinInpaint(cropX1, cropY1, cropW, cropH);
 
-      const cleanImg = new Image();
-      cleanImg.onload = () => {
-        baseCtx.drawImage(cleanImg, 0, 0);
-        currentWorkingImage = cleanImg;
-        cachedSubjectMask = null; // Mask invalidated because tattoos removed
+        const baked = document.createElement('canvas');
+        baked.width = baseCanvas.width;
+        baked.height = baseCanvas.height;
+        baked.getContext('2d').drawImage(baseCanvas, 0, 0);
+        currentWorkingImage = baked;
+
+        cachedSubjectMask = null;
+        cachedSubjectCutout = null;
         clearMask();
         updateUndoState();
         showProgress(false);
-      };
-      cleanImg.src = resJson.result;
-
-    } catch (err) {
-      console.error('Inpainting error:', err);
-      showProgress(false);
-      alert('Error during tattoo removal: ' + err.message);
+      } catch (fbErr) {
+        console.error('[InkErase] On-device inpaint fallback error:', fbErr);
+        showProgress(false);
+        alert('Tattoo removal error: ' + fbErr.message);
+      }
     }
   });
 
